@@ -221,6 +221,7 @@ native-module/*.node.stale-*
 .github/RepoGuide.md
 
 # AI / Agent tooling
+.omc/
 .sisyphus/
 .opencode/
 .planning/
