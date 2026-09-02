@@ -39,6 +39,9 @@ change.md
 # Local premium dev copy — never commit to public repo
 /premium
 
+# Hindsight long-term-memory Python sidecar (local dev)
+.venv-hindsight/
+
 # Generated migration patches — private, not for public repo
 *.patch
 # Exception: the patches/ directory holds patch-package commits that MUST
