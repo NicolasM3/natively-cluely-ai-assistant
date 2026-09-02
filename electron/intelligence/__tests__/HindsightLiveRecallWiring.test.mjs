@@ -8,7 +8,7 @@ import { isBackwardLookingQuery } from '../../../dist-electron/electron/intellig
 import { HindsightClientAdapter } from '../../../dist-electron/electron/intelligence/memory/HindsightClientAdapter.js';
 
 const LIVE = process.env.HINDSIGHT_LIVE_TEST === '1';
-const BASE = process.env.HINDSIGHT_BASE_URL || 'http://localhost:8888';
+const BASE = process.env.HINDSIGHT_BASE_URL || 'http://localhost:19888';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = String(process.hrtime.bigint()).slice(-9);
 

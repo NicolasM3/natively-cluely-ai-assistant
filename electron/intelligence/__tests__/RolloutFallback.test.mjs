@@ -108,7 +108,7 @@ describe('Rollout — disabled mode (default = old behavior)', () => {
   });
 
   test('LongTermMemoryService.fromFlags is Noop when hindsight_memory is OFF', () => {
-    const svc = LongTermMemoryService.fromFlags({ hindsight: { baseUrl: 'http://localhost:8888' } });
+    const svc = LongTermMemoryService.fromFlags({ hindsight: { baseUrl: 'http://localhost:19888' } });
     assert.equal(svc.enabled, false);
     assert.equal(svc.providerName, 'noop');
   });

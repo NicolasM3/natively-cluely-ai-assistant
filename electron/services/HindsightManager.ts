@@ -8,7 +8,7 @@
 // OPTIONAL, USER-PROVISIONED sidecar: the app health-checks it and degrades to Noop if
 // it isn't there. Two supported targets, same code path:
 //   • Local  — user runs `bash scripts/hindsight-start.sh` (or `pip install hindsight-all`
-//              + the server) and points baseUrl at http://localhost:8888.
+//              + the server) and points baseUrl at the local default (see constants).
 //   • Cloud  — user pastes their Hindsight Cloud baseUrl + apiKey.
 //
 // Config-from-settings + cached health-gating: the retain/recall paths gate on
@@ -32,6 +32,7 @@
 
 import type { HindsightConfig } from '../intelligence/memory/HindsightClientAdapter';
 import type { ChildProcess } from 'child_process';
+import { HINDSIGHT_DEFAULT_BASE_URL, HINDSIGHT_DEFAULT_PORT } from '../config/constants';
 
 interface SettingsLike {
   get(key: string): unknown;
@@ -42,7 +43,7 @@ const AVAILABILITY_TTL_MS = 30_000;   // cache health so per-retain/recall calls
 const AUTH_FAILURE_TTL_MS = 5 * 60_000; // cache 401/403 longer — don't spam a rejected key
 const SPAWN_POLL_INTERVAL_MS = 5000;  // poll for readiness (like OllamaManager)
 const SPAWN_MAX_ATTEMPTS = 36;        // 36 * 5s = 180s (first boot downloads embedding models)
-const SYNTHETIC_LOCAL_BASEURL = 'http://localhost:8888'; // bundled dev server's default port
+const SYNTHETIC_LOCAL_BASEURL = HINDSIGHT_DEFAULT_BASE_URL;
 
 /**
  * Classify a baseUrl as local vs remote. Local targets get the auto-spawn + provider-key
@@ -831,6 +832,22 @@ export class HindsightManager {
     return argv;
   }
 
+  /**
+   * Port for the spawned local Hindsight server. Prefers HINDSIGHT_PORT env, then the
+   * configured baseUrl port, then HINDSIGHT_DEFAULT_PORT.
+   */
+  private resolveSpawnPort(cfg: HindsightConfig | null): string {
+    const fromEnv = String(process.env.HINDSIGHT_PORT || '').trim();
+    if (fromEnv) return fromEnv;
+    if (cfg?.baseUrl) {
+      try {
+        const u = new URL(cfg.baseUrl);
+        if (u.port) return u.port;
+      } catch { /* fall through */ }
+    }
+    return String(HINDSIGHT_DEFAULT_PORT);
+  }
+
   private spawnServer(command: string): void {
     try {
       const { spawn } = require('child_process') as typeof import('child_process');
@@ -900,7 +917,7 @@ export class HindsightManager {
         // packaged app doesn't need .env or manual GEMINI_API_KEY exports. The shell
         // script (hindsight-start.sh) picks these up and builds the litellm router.
         // augmentPath() fixes the Finder-launch minimal-PATH caveat (python3 not found).
-        env: { ...process.env, PATH: this.augmentPath(), ...credsEnv },
+        env: { ...process.env, PATH: this.augmentPath(), HINDSIGHT_PORT: this.resolveSpawnPort(cfg), ...credsEnv },
       };
       this.serverProcess = allowShell
         // Legacy shell form (opt-in via HINDSIGHT_SERVER_COMMAND_ALLOW_SHELL=true).

@@ -80,7 +80,7 @@ describe('HindsightClientAdapter — mock client', () => {
 
   test('retain enqueues with bank + strict tags', async () => {
     const client = mockClient();
-    const a = new HindsightClientAdapter({ baseUrl: 'http://localhost:8888', defaultBank: 'd' }, client);
+    const a = new HindsightClientAdapter({ baseUrl: 'http://localhost:19888', defaultBank: 'd' }, client);
     assert.equal(a.enabled, true);
     a.retain({ content: 'We discussed Redis.', scope: { userId: 'alice', orgId: 'acme', meetingId: 'm1' }, source: 'meeting_summary', mode: 'sales' });
     await a.flush();

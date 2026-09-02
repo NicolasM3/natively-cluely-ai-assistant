@@ -10,10 +10,10 @@ separate decision.
 Usage:
     GEMINI_API_KEY=... python3 scripts/hindsight-dev-server.py
     # optional overrides:
-    HINDSIGHT_PORT=8888 HINDSIGHT_LLM_MODEL=gemini-2.5-flash python3 scripts/hindsight-dev-server.py
+    HINDSIGHT_PORT=19888 HINDSIGHT_LLM_MODEL=gemini-2.5-flash python3 scripts/hindsight-dev-server.py
 
 Then point Natively at it:
-    HINDSIGHT_BASE_URL=http://localhost:8888
+    HINDSIGHT_BASE_URL=http://localhost:19888
 
 Requires:  pip install hindsight-all -U   (Python 3.11+)
 """
@@ -22,7 +22,7 @@ import sys
 import signal
 import time
 
-PORT = int(os.environ.get("HINDSIGHT_PORT", "8888"))
+PORT = int(os.environ.get("HINDSIGHT_PORT", "19888"))
 
 # Provider + key. Gemini is supported by the Hindsight server; the app already has
 # GEMINI_API_KEY. Fall back to other common keys if a different provider is preferred.

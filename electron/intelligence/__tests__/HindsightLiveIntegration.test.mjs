@@ -4,7 +4,7 @@
 //
 //   1. pip install hindsight-all -U
 //   2. GEMINI_API_KEY=... python3 scripts/hindsight-dev-server.py
-//   3. HINDSIGHT_LIVE_TEST=1 HINDSIGHT_BASE_URL=http://localhost:8888 \
+//   3. HINDSIGHT_LIVE_TEST=1 HINDSIGHT_BASE_URL=http://localhost:19888 \
 //        node --test electron/intelligence/__tests__/HindsightLiveIntegration.test.mjs
 //
 // Proves against a REAL server: (a) retain→recall returns the fact, (b) bank isolation —
@@ -21,7 +21,7 @@ import { HindsightClientAdapter } from '../../../dist-electron/electron/intellig
 import { LongTermMemoryService } from '../../../dist-electron/electron/intelligence/memory/LongTermMemoryService.js';
 
 const LIVE = process.env.HINDSIGHT_LIVE_TEST === '1';
-const BASE = process.env.HINDSIGHT_BASE_URL || 'http://localhost:8888';
+const BASE = process.env.HINDSIGHT_BASE_URL || 'http://localhost:19888';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Unique per-run user ids so reruns don't collide in the persisted bank.

@@ -7,7 +7,7 @@
 //
 // Usage:
 //   node scripts/verify-hindsight.mjs
-//   HINDSIGHT_BASE_URL=http://localhost:8888 node scripts/verify-hindsight.mjs
+//   HINDSIGHT_BASE_URL=http://localhost:19888 node scripts/verify-hindsight.mjs
 //
 // Privacy: never prints the API key (masked); only synthetic data is sent.
 

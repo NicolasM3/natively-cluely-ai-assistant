@@ -63,7 +63,7 @@ describe('HindsightManager.getHindsightConfig', () => {
     // + restart without ever opening Settings.
     const cfg = HindsightManager.getInstance().getHindsightConfig();
     assert.ok(cfg, 'expected synthetic default (no-save flow)');
-    assert.equal(cfg.baseUrl, 'http://localhost:8888');
+    assert.equal(cfg.baseUrl, 'http://localhost:19888');
     assert.equal(cfg.mode, 'local');
     assert.equal(cfg.synthetic, true);
     assert.equal(cfg.apiKey, undefined);
@@ -76,7 +76,7 @@ describe('HindsightManager.getHindsightConfig', () => {
     // from <userData>/settings.json on CONSTRUCTION (SettingsManager.loadSettings() in
     // the ctor). So: drop the bundle from require.cache → forces a fresh construction
     // on next import → re-reads from disk → sees our written sentinel.
-    process.env.HINDSIGHT_BASE_URL = 'http://localhost:8888'; // ensure cfg is non-null when sentinel is NOT set
+    process.env.HINDSIGHT_BASE_URL = 'http://localhost:19888'; // ensure cfg is non-null when sentinel is NOT set
     // Find the testUserData the electron stub created for this run (see installElectronStub).
     // The stub's getPath('userData') returns it; re-derive via os.tmpdir.
     const path = require('node:path');
@@ -150,10 +150,10 @@ describe('HindsightManager.getHindsightConfig', () => {
   });
 
   test('env HINDSIGHT_BASE_URL configures the server', () => {
-    process.env.HINDSIGHT_BASE_URL = 'http://localhost:8888';
+    process.env.HINDSIGHT_BASE_URL = 'http://localhost:19888';
     const cfg = HindsightManager.getInstance().getHindsightConfig();
     assert.ok(cfg);
-    assert.equal(cfg.baseUrl, 'http://localhost:8888');
+    assert.equal(cfg.baseUrl, 'http://localhost:19888');
     assert.equal(cfg.mode, 'local');
     assert.equal(cfg.synthetic, undefined); // env-provided URL is not synthetic
     assert.equal(cfg.timeoutMs, 800);
@@ -174,7 +174,7 @@ describe('HindsightManager.getHindsightConfig', () => {
     process.env.HINDSIGHT_BASE_URL = '   ';
     const cfg = HindsightManager.getInstance().getHindsightConfig();
     assert.ok(cfg);
-    assert.equal(cfg.baseUrl, 'http://localhost:8888');
+    assert.equal(cfg.baseUrl, 'http://localhost:19888');
     assert.equal(cfg.synthetic, true);
   });
 
@@ -202,7 +202,7 @@ describe('HindsightManager.healthCheck + isAvailable', () => {
   test('healthCheck is false (no throw) when an unreachable URL is configured', async () => {
     // Under the no-save flow, getHindsightConfig resolves to a synthetic default OR the
     // explicit env URL. Either way, an unreachable port should return false cleanly with
-    // no exception. Use an explicit env URL to avoid the synthetic-default localhost:8888
+    // no exception. Use an explicit env URL to avoid the synthetic-default localhost:19888
     // probe (which would actually try to connect to a real local server in dev).
     process.env.HINDSIGHT_BASE_URL = 'http://127.0.0.1:59999'; // nothing listening
     const ok = await HindsightManager.getInstance().healthCheck();
@@ -237,7 +237,7 @@ describe('HindsightManager.healthCheck + isAvailable', () => {
 
   // OPT-IN: with a real server running, healthCheck passes and isAvailable gates open.
   test('healthCheck TRUE against a live server', { skip: process.env.HINDSIGHT_LIVE_TEST !== '1' && 'set HINDSIGHT_LIVE_TEST=1 + run the dev server' }, async () => {
-    process.env.HINDSIGHT_BASE_URL = process.env.HINDSIGHT_BASE_URL || 'http://localhost:8888';
+    process.env.HINDSIGHT_BASE_URL = process.env.HINDSIGHT_BASE_URL || 'http://localhost:19888';
     const mgr = HindsightManager.getInstance();
     assert.equal(await mgr.healthCheck(), true);
     assert.equal(mgr.isAvailable(), true);

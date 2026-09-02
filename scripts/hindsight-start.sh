@@ -39,9 +39,11 @@ fi
 # exit-1. Probe candidates in order and pick the first that can import it.
 pick_python() {
   local c
-  # 1. explicit override, 2. PATH python3/python, 3. common concrete install locations.
+  # 1. explicit override, 2. project venv (uv/pip install target), 3. PATH python3/python,
+  # 4. common concrete install locations.
   for c in \
     "${HINDSIGHT_PYTHON:-}" \
+    "$(dirname "$0")/../.venv-hindsight/bin/python" \
     "$(command -v python3 || true)" \
     "$(command -v python || true)" \
     /usr/local/bin/python3 \
@@ -59,7 +61,9 @@ pick_python() {
 PYTHON_BIN="$(pick_python || true)"
 if [ -z "$PYTHON_BIN" ]; then
   echo "[hindsight-start] ERROR: no python3 with the 'hindsight' package found." >&2
-  echo "[hindsight-start] Install it:  python3 -m pip install hindsight-all" >&2
+  echo "[hindsight-start] Install it:" >&2
+  echo "[hindsight-start]   uv venv .venv-hindsight --python 3.11 && uv pip install hindsight-all --python .venv-hindsight/bin/python" >&2
+  echo "[hindsight-start] Or:  python3 -m pip install hindsight-all" >&2
   echo "[hindsight-start] Or point HINDSIGHT_PYTHON at the right interpreter." >&2
   exit 1
 fi

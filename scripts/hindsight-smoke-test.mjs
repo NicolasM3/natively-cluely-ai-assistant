@@ -2,10 +2,10 @@
 // Proves: server up, Gemini fact-extraction works, client↔server contract holds,
 // and tag-based bank isolation excludes a foreign scope.
 //
-// Usage:  HINDSIGHT_BASE_URL=http://localhost:8888 node scripts/hindsight-smoke-test.mjs
+// Usage:  HINDSIGHT_BASE_URL=http://localhost:19888 node scripts/hindsight-smoke-test.mjs
 import { HindsightClient } from '@vectorize-io/hindsight-client';
 
-const baseUrl = process.env.HINDSIGHT_BASE_URL || 'http://localhost:8888';
+const baseUrl = process.env.HINDSIGHT_BASE_URL || 'http://localhost:19888';
 const client = new HindsightClient({ baseUrl });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

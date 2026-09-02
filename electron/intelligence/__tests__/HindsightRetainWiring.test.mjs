@@ -44,7 +44,7 @@ describe('Phase 13 — fromFlags is Noop unless flag ON + baseUrl + client insta
   test('(a) flag OFF + baseUrl set → Noop (enabled=false, providerName=noop)', () => {
     // Sanity floor: even with a real-looking baseUrl, the flag default OFF gives Noop.
     clearFlag();
-    const ltm = LongTermMemoryService.fromFlags({ hindsight: { baseUrl: 'http://localhost:8888' } });
+    const ltm = LongTermMemoryService.fromFlags({ hindsight: { baseUrl: 'http://localhost:19888' } });
     assert.equal(ltm.enabled, false, 'flag OFF must yield a disabled (Noop) service');
     assert.equal(ltm.providerName, 'noop');
   });
@@ -65,7 +65,7 @@ describe('Phase 13 — fromFlags is Noop unless flag ON + baseUrl + client insta
     // actually reachable is orthogonal — recall/retain degrade gracefully if it's down.)
     // The "client-absent → Noop" safety path is covered at the unit level in
     // HindsightMemory.test.mjs via a mock, and structurally by the lazy try/catch require.
-    const adapter = new HindsightClientAdapter({ baseUrl: 'http://localhost:8888', apiKey: 'k' });
+    const adapter = new HindsightClientAdapter({ baseUrl: 'http://localhost:19888', apiKey: 'k' });
     assert.equal(adapter.name, 'hindsight');
     assert.equal(adapter.enabled, true, 'with the client installed + a baseUrl, the adapter constructs enabled');
   });
