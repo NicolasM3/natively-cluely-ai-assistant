@@ -20,7 +20,7 @@ import {
   TINY_ASSIST_PROMPT, TINY_BRAINSTORM_PROMPT, TINY_CLARIFY_PROMPT, TINY_CODE_HINT_PROMPT,
   TINY_PROMPTS_SET
 } from "./llm/tinyPrompts"
-import { getModelCapabilities, selectPromptTier, estimateTokens, truncateTranscriptToFit, getOpenAiMaxOutput, getOpenAiReasoningEffort, type OpenAiReasoningEffort, type PromptTier, type ModelCapabilities } from "./llm/modelCapabilities"
+import { getModelCapabilities, filterOllamaChatModels, isOllamaEmbeddingOnlyModel, selectPromptTier, estimateTokens, estimateOllamaImageTokenReserve, ollamaRequestNumCtx, trimOllamaUserContentForCtx, truncateTranscriptToFit, getOpenAiMaxOutput, getOpenAiReasoningEffort, type OpenAiReasoningEffort, type PromptTier, type ModelCapabilities } from "./llm/modelCapabilities"
 import { GeminiPromptCache } from "./llm/GeminiPromptCache"
 import {
   runStreamingVisionFallback,
@@ -41,6 +41,7 @@ import { telemetryService } from "./services/telemetry/TelemetryService"
 import {
   ollamaVisionFromShow,
   resolveOllamaVision,
+  pickPreferredOllamaVisionModel,
   customProviderSupportsVision,
   customProviderIsLocal,
 } from "./llm/visionCapability"
@@ -458,6 +459,8 @@ export class LLMHelper {
   private groqFastTextMode: boolean = false;
   private codexCliConfig: CodexCliConfig = DEFAULT_CODEX_CLI_CONFIG;
   private knowledgeOrchestrator: any = null;
+  /** Populated by {@link prefetchKnowledgeIntercept} so live-deadline races do not bill vector retrieval against TTFT. */
+  private knowledgePrefetchCache: { question: string; result: unknown } | null = null;
   private negotiationCoachingHandler: ((payload: unknown) => void) | null = null;
   private aiResponseLanguage: string = 'auto';
   private sttLanguage: string = 'english-us';
@@ -1743,8 +1746,20 @@ export class LLMHelper {
 
   private async callOllama(prompt: string, imagePath?: string | string[], systemPrompt?: string): Promise<string> {
     try {
-      let images: string[] | undefined;
       const imagePaths = Array.isArray(imagePath) ? imagePath : imagePath ? [imagePath] : [];
+      const needsVision = imagePaths.length > 0;
+      const dispatchModel = await this.resolveOllamaDispatchModel(needsVision);
+      if (!dispatchModel) {
+        const installed = await this.getOllamaModels();
+        const hint = needsVision
+          ? 'No vision-capable Ollama model is available for this image request.'
+          : installed.some((m) => isOllamaEmbeddingOnlyModel(m))
+            ? 'Only embedding models are installed — run "ollama pull qwen2.5:4b" (or similar) for local chat.'
+            : 'No chat-capable Ollama model is available.';
+        throw new Error(hint);
+      }
+
+      let images: string[] | undefined;
       if (imagePaths.length > 0) {
         const encoded: string[] = [];
         for (const path of imagePaths) {
@@ -1761,16 +1776,14 @@ export class LLMHelper {
       const sys = systemPrompt ? this.resolveLocalSystemPrompt(systemPrompt) : TINY_SYSTEM_PROMPT;
       // Per-request hard guard: trim userContent (never sys) until total fits the model's max ctx.
       let userContent = prompt;
-      const maxCtx = getModelCapabilities(this.ollamaModel, true).maxContextTokens;
-      let total = estimateTokens(sys) + estimateTokens(userContent) + 2000;
-      if (total > maxCtx) {
-        console.warn('[Ollama] context overflow', { model: this.ollamaModel, total, max: maxCtx });
-        const lines = userContent.split('\n');
-        while (lines.length > 1 && (estimateTokens(sys) + estimateTokens(lines.join('\n')) + 2000) > maxCtx) {
-          lines.shift();
-        }
-        userContent = lines.join('\n');
-      }
+      const trimmed = trimOllamaUserContentForCtx({
+        modelId: dispatchModel,
+        systemPrompt: sys,
+        userContent,
+        imageCount: images?.length ?? 0,
+      });
+      userContent = trimmed.userContent;
+      const numCtx = trimmed.numCtx;
       const userMessage: any = { role: 'user', content: userContent };
       if (images) userMessage.images = images;
       const messages = [
@@ -1778,10 +1791,10 @@ export class LLMHelper {
         userMessage,
       ];
 
-      console.log(`[LLMHelper] Ollama call → model=${this.ollamaModel} sysLen=${sys.length} userLen=${userContent.length} images=${images?.length ?? 0}`);
+      console.log(`[LLMHelper] Ollama call → model=${dispatchModel} sysLen=${sys.length} userLen=${userContent.length} images=${images?.length ?? 0}`);
 
       const ollamaBody: any = {
-        model: this.ollamaModel,
+        model: dispatchModel,
         messages,
         stream: false,
         // Keep the model resident between turns (see ollamaKeepAlive / streamWithOllama).
@@ -1789,9 +1802,10 @@ export class LLMHelper {
         options: {
           temperature: 0.7,
           top_p: 0.9,
+          num_ctx: numCtx,
         }
       };
-      if (this.isThinkingModel(this.ollamaModel)) ollamaBody.think = false;
+      if (this.isThinkingModel(dispatchModel)) ollamaBody.think = false;
       const response = await fetch(`${this.ollamaUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1822,6 +1836,16 @@ export class LLMHelper {
    */
   public async canUseLocalFallback(needsVision = false): Promise<boolean> {
     return this.checkOllamaAvailable(needsVision);
+  }
+
+  /**
+   * Seed Ollama URL/model for cloud→local fallback without making Ollama the
+   * selected primary provider. Called when OLLAMA_* env vars are set but the
+   * user's default model is a cloud id (e.g. gemini-*).
+   */
+  public seedOllamaFallbackConfig(url?: string, model?: string): void {
+    if (url) this.ollamaUrl = url.replace('localhost', '127.0.0.1');
+    if (model && !isOllamaEmbeddingOnlyModel(model)) this.ollamaModel = model;
   }
 
   /**
@@ -1865,20 +1889,25 @@ export class LLMHelper {
     // user asked not to have.
     if (this.isProviderDisabled('ollama')) return { ok: false };
     try {
-      const availableModels = await this.getOllamaModels();
+      const availableModels = filterOllamaChatModels(await this.getOllamaModels());
       if (availableModels.length === 0) return { ok: false };
       const model = (this.ollamaModel && availableModels.includes(this.ollamaModel))
         ? this.ollamaModel
         : availableModels[0];
       const capabilities = getModelCapabilities(model, true);
-      if (needsVision && !capabilities.supportsImages) return { ok: false, model };
+      let dispatchModel = model;
+      if (needsVision && !capabilities.supportsImages) {
+        const visionModel = await this.refreshOllamaVisionModel();
+        if (!visionModel) return { ok: false, model };
+        dispatchModel = visionModel;
+      }
       const response = await fetch(`${this.ollamaUrl}/api/show`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: model }),
+        body: JSON.stringify({ name: dispatchModel }),
         signal: AbortSignal.timeout(10_000),
       });
-      return { ok: response.ok, model };
+      return { ok: response.ok, model: dispatchModel };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn('[ScopeFallback] Ollama availability check failed:', message);
@@ -1908,18 +1937,65 @@ export class LLMHelper {
   private async ensureOllamaModelSelected(needsVision = false): Promise<boolean> {
     const { ok, model } = await this.probeOllama(needsVision);
     if (model && model !== this.ollamaModel) {
-      console.log(`[LLMHelper] Ollama model "${this.ollamaModel}" is not installed — selecting "${model}"`);
-      this.ollamaModel = model;
+      const availableModels = await this.getOllamaModels();
+      const selectionInvalid = !this.ollamaModel
+        || !availableModels.includes(this.ollamaModel)
+        || isOllamaEmbeddingOnlyModel(this.ollamaModel);
+      if (selectionInvalid) {
+        const reason = isOllamaEmbeddingOnlyModel(this.ollamaModel)
+          ? 'embedding-only model cannot serve chat'
+          : 'not installed';
+        console.log(`[LLMHelper] Ollama model "${this.ollamaModel}" is ${reason} — selecting "${model}"`);
+        this.ollamaModel = model;
+      }
     }
     return ok;
   }
 
+  /**
+   * Pick the Ollama model to dispatch for this request. When the user has a
+   * text-only model selected but the turn carries an image, returns the best
+   * installed vision model (via refreshOllamaVisionModel) WITHOUT mutating
+   * `this.ollamaModel`, so the Settings selection stays on the text model.
+   */
+  private async resolveOllamaDispatchModel(needsVision: boolean, modelOverride?: string): Promise<string | null> {
+    if (modelOverride && !isOllamaEmbeddingOnlyModel(modelOverride)) {
+      return modelOverride;
+    }
+
+    const availableModels = filterOllamaChatModels(await this.getOllamaModels());
+    if (availableModels.length === 0) return null;
+
+    let base = this.ollamaModel;
+    if (!base || !availableModels.includes(base) || isOllamaEmbeddingOnlyModel(base)) {
+      if (!(await this.ensureOllamaModelSelected(needsVision))) return null;
+      base = this.ollamaModel;
+    }
+    if (!base || isOllamaEmbeddingOnlyModel(base)) return null;
+
+    if (!needsVision) return base;
+
+    const caps = getModelCapabilities(base, true);
+    if (caps.supportsImages) return base;
+
+    const visionModel = await this.refreshOllamaVisionModel();
+    if (!visionModel) return null;
+    if (visionModel !== base) {
+      console.log(`[LLMHelper] Ollama vision fallback: ${base} → ${visionModel} (image request)`);
+    }
+    return visionModel;
+  }
+
   private async initializeOllamaModel(): Promise<void> {
     try {
-      const availableModels = await this.getOllamaModels()
+      const availableModels = filterOllamaChatModels(await this.getOllamaModels())
       if (availableModels.length === 0) {
-        const msg = `No Ollama models installed. Run "ollama pull <model>" (e.g. ollama pull qwen2.5:4b) and restart.`;
+        const installed = await this.getOllamaModels();
+        const msg = installed.length > 0
+          ? `Only embedding models are installed (${installed.join(', ')}). Run "ollama pull qwen2.5:4b" (or similar) for local chat.`
+          : `No Ollama models installed. Run "ollama pull <model>" (e.g. ollama pull qwen2.5:4b) and restart.`;
         console.warn(`[LLMHelper] ${msg}`);
+        if (isOllamaEmbeddingOnlyModel(this.ollamaModel)) this.ollamaModel = '';
         this.notifyRendererOllamaError(msg);
         return
       }
@@ -1947,12 +2023,12 @@ export class LLMHelper {
     } catch (error: any) {
       console.error(`[LLMHelper] Failed to initialize Ollama model: ${error?.message}`);
       try {
-        const models = await this.getOllamaModels()
+        const models = filterOllamaChatModels(await this.getOllamaModels())
         if (models.length > 0) {
           this.ollamaModel = models[0]
-          console.log(`[LLMHelper] Fallback to first installed model: ${this.ollamaModel}`)
+          console.log(`[LLMHelper] Fallback to first installed chat model: ${this.ollamaModel}`)
         } else {
-          this.notifyRendererOllamaError(`Ollama is reachable but no models are installed.`);
+          this.notifyRendererOllamaError(`Ollama is reachable but no chat-capable models are installed.`);
         }
       } catch (fallbackError: any) {
         console.error(`[LLMHelper] Fallback also failed: ${fallbackError?.message}`);
@@ -2514,6 +2590,40 @@ ANSWER DIRECTLY:`;
 
   public getKnowledgeOrchestrator(): any {
     return this.knowledgeOrchestrator;
+  }
+
+  /**
+   * Run the Profile/Knowledge intercept BEFORE the live streaming deadline starts.
+   * `_streamChatInner` normally does this lazily on the generator's first pull, which
+   * bills vector retrieval + `processQuestion` against the first-useful budget and
+   * causes "did not produce an answer in time" when Profile Mode is active.
+   */
+  public async prefetchKnowledgeIntercept(
+    message: string,
+    opts: { ignoreKnowledgeMode?: boolean; pinnedModeId?: string | null } = {},
+  ): Promise<number> {
+    const documentGroundedCustomModeActive = (() => {
+      try {
+        const { ModesManager } = require('./services/ModesManager');
+        const pin = opts.pinnedModeId ?? null;
+        return ModesManager.getInstance().getActiveModeDocumentGroundingInfo?.(pin ?? undefined).documentGroundedCustomModeActive === true;
+      } catch { return false; }
+    })();
+    const shouldRun = !opts.ignoreKnowledgeMode
+      && !documentGroundedCustomModeActive
+      && !this.groqFastTextMode
+      && this.knowledgeOrchestrator?.isKnowledgeMode?.();
+    if (!shouldRun) return 0;
+    const start = Date.now();
+    try {
+      this.knowledgeOrchestrator.feedForDepthScoring(message);
+      const result = await this.knowledgeOrchestrator.processQuestion(message);
+      this.knowledgePrefetchCache = { question: message, result };
+    } catch (err: any) {
+      console.warn('[LLMHelper] prefetchKnowledgeIntercept failed:', err?.message || err);
+      this.knowledgePrefetchCache = null;
+    }
+    return Date.now() - start;
   }
 
   public setAiResponseLanguage(language: string) {
@@ -3151,6 +3261,12 @@ let isMultimodal = !!(imagePaths?.length);
       const cloudImagePaths = deniedOutboundScopes.includes('screenshots') ? undefined : imagePaths;
       const cloudIsMultimodal = Boolean(cloudImagePaths?.length);
       const ollamaAvailable = this.useOllama && await this.ensureOllamaModelSelected(deniedOutboundScopes.includes('screenshots'));
+      const ollamaCloudFallback = !ollamaAvailable
+        && !this.isProviderDisabled('ollama')
+        && await this.canUseLocalFallback(cloudIsMultimodal);
+      if (ollamaCloudFallback) {
+        await this.ensureOllamaModelSelected(cloudIsMultimodal);
+      }
       if (deniedOutboundScopes.length > 0) {
         for (const scope of deniedOutboundScopes) {
           this.logScopeFallback(scope, ollamaAvailable ? 'routing' : 'omitting');
@@ -3313,7 +3429,7 @@ let isMultimodal = !!(imagePaths?.length);
           hasOpenAI: Boolean(this.openaiClient),
           hasClaude: Boolean(this.claudeClient),
           hasDeepseek: Boolean(this.deepseekClient),
-          hasOllama: ollamaAvailable,
+          hasOllama: ollamaAvailable || ollamaCloudFallback,
         },
         models: {
           groq: textGroq,
@@ -5381,12 +5497,21 @@ let isMultimodal = !!(imagePaths?.length);
           open: (sig) => this.streamWithCustom(message, context, imagePaths, systemPrompt, sig) });
       }
     }
-    // Ollama: use the resolved vision-capable model (which may differ from the
-    // primary text model). Synchronously trust the cached resolution; kick off
-    // a refresh for next time if we haven't probed yet.
-    const ollamaVisionModel = this.useOllama ? this.ollamaVisionModel : null;
-    if (this.useOllama && !ollamaVisionModel) {
-      this.refreshOllamaVisionModel().catch(() => { }); // populate for the next request
+    // Ollama vision: primary when selected, or last-resort when installed for
+    // cloud fallback. Synchronously trust the cached resolution; kick off a
+    // refresh for next time if we haven't probed yet.
+    let ollamaVisionModel: string | null = null;
+    const ollamaVisionEligible = !this.isProviderDisabled('ollama')
+      && (this.useOllama || await this.canUseLocalFallback(true));
+    if (ollamaVisionEligible) {
+      if (this.useOllama && this.ollamaVisionModel) {
+        ollamaVisionModel = this.ollamaVisionModel;
+      } else {
+        ollamaVisionModel = await this.refreshOllamaVisionModel();
+      }
+      if (this.useOllama && !ollamaVisionModel) {
+        this.refreshOllamaVisionModel().catch(() => { }); // populate for the next request
+      }
     }
     if (ollamaVisionModel) {
       local.push({ id: 'ollama', name: `Ollama (${ollamaVisionModel})`, isLocal: true, priority: 101,
@@ -5917,10 +6042,18 @@ let isMultimodal = !!(imagePaths?.length);
     if (shouldRunKnowledge) {
       try {
         // Feed to depth scorer only (not negotiation tracker) — mirrors non-streaming path fix.
-        this.knowledgeOrchestrator.feedForDepthScoring(message);
+        if (!(this.knowledgePrefetchCache?.question === message)) {
+          this.knowledgeOrchestrator.feedForDepthScoring(message);
+        }
 
         _stage('processQuestion START');
-        const knowledgeResult = await this.knowledgeOrchestrator.processQuestion(message);
+        let knowledgeResult: any;
+        if (this.knowledgePrefetchCache?.question === message) {
+          knowledgeResult = this.knowledgePrefetchCache.result;
+          this.knowledgePrefetchCache = null;
+        } else {
+          knowledgeResult = await this.knowledgeOrchestrator.processQuestion(message);
+        }
         _stage('processQuestion DONE');
         // Issue #272: gate ALL premium-intercept side-effects (coaching, intro
         // shortcut, prompt/context injection) by active mode. The depth scorer
@@ -7044,6 +7177,15 @@ let isMultimodal = !!(imagePaths?.length);
 
     // 1. Ollama Streaming
     if (this.useOllama) {
+      const needsVision = Boolean(isMultimodal && imagePaths?.length);
+      if (!(await this.ensureOllamaModelSelected(needsVision))) {
+        const installed = await this.getOllamaModels();
+        const hint = installed.some((m) => isOllamaEmbeddingOnlyModel(m))
+          ? 'Only embedding models are installed — run "ollama pull qwen2.5:4b" (or similar) for local chat.'
+          : 'No chat-capable Ollama model is available.';
+        yield `Error: Failed to stream from Ollama (${hint})`;
+        return;
+      }
       const ollamaSystemPrompt = this.resolveLocalSystemPrompt(finalSystemPrompt);
       yield* this.streamWithOllama(contextOsGoverningBlock ? userContent : message, contextOsGoverningBlock ? undefined : combinedContext || undefined, ollamaSystemPrompt, imagePaths, abortSignal);
       return;
@@ -7434,6 +7576,46 @@ let isMultimodal = !!(imagePaths?.length);
         // since downstream code (assertOutboundScopes, vision chain, etc.) reads
         // this.customProvider and would otherwise fire for the wrong provider.
         this.customProvider = prevCustom;
+      }
+    }
+
+    // 7. Last-resort: local Ollama when cloud providers are exhausted (Gemini
+    // primary). Mirrors generateSummary's Ollama rung (~L9609).
+    if (
+      !commit.emitted &&
+      !this.isLocalOnlyMode &&
+      !this.isProviderDisabled('ollama') &&
+      !this.useOllama &&
+      await this.canUseLocalFallback(Boolean(isMultimodal && imagePaths?.length))
+    ) {
+      const needsVision = Boolean(isMultimodal && imagePaths?.length);
+      if (await this.ensureOllamaModelSelected(needsVision)) {
+        try {
+          const ollamaSystemPrompt = this.resolveLocalSystemPrompt(finalSystemPrompt);
+          const visionModel = needsVision
+            ? (await this.refreshOllamaVisionModel()) ?? this.ollamaModel
+            : undefined;
+          console.log(`[LLMHelper] Cloud providers exhausted — falling back to local Ollama (${visionModel ?? this.ollamaModel})...`);
+          yield* this.trackCommit(
+            this.streamWithOllama(
+              contextOsGoverningBlock ? userContent : message,
+              contextOsGoverningBlock ? undefined : combinedContext || undefined,
+              ollamaSystemPrompt,
+              imagePaths,
+              abortSignal,
+              visionModel,
+            ),
+            commit,
+          );
+          return;
+        } catch (e: any) {
+          if (commit.emitted) {
+            console.warn('[LLMHelper] Ollama last-resort failed AFTER first token — ending stream rather than appending a second answer:', e?.message);
+            yield LLMHelper.TRUNCATION_SENTINEL;
+            return;
+          }
+          console.warn('[LLMHelper] Ollama last-resort failed:', e?.message);
+        }
       }
     }
 
@@ -8423,22 +8605,34 @@ let isMultimodal = !!(imagePaths?.length);
 
   // --- OLLAMA STREAMING (uses /api/chat with proper messages array) ---
   private async * streamWithOllama(message: string, context?: string, systemPrompt: string = TINY_SYSTEM_PROMPT, imagePaths?: string[], abortSignal?: AbortSignal, modelOverride?: string): AsyncGenerator<string, void, unknown> {
-    // When a screenshot is attached and the primary model is text-only, the
-    // caller passes the resolved vision-capable model here so the image is
-    // actually understood instead of silently dropped.
-    const ollamaModel = modelOverride || this.ollamaModel;
+    const needsVision = Boolean(imagePaths?.length);
+    const ollamaModel = await this.resolveOllamaDispatchModel(needsVision, modelOverride);
+    if (!ollamaModel || isOllamaEmbeddingOnlyModel(ollamaModel)) {
+      const installed = await this.getOllamaModels();
+      const hint = needsVision && !installed.some((m) => getModelCapabilities(m, true).supportsImages)
+        ? 'No vision-capable Ollama model is installed — run "ollama pull qwen3-vl:8b-instruct" (or similar) for screenshots.'
+        : installed.some((m) => isOllamaEmbeddingOnlyModel(m))
+          ? 'Only embedding models are installed — run "ollama pull qwen2.5:4b" (or similar) for local chat.'
+          : 'No chat-capable Ollama model is available.';
+      yield `Error: Failed to stream from Ollama (${hint})`;
+      return;
+    }
     let userContent = context ? `CONTEXT:\n${context}\n\nUSER:\n${message}` : message;
-    // Per-request hard guard: trim userContent (never systemPrompt) until total fits the model's max ctx.
+    // Per-request hard guard: trim userContent (never systemPrompt) until total fits num_ctx.
+    let numCtx = ollamaRequestNumCtx(ollamaModel);
     {
-      const maxCtx = getModelCapabilities(ollamaModel, true).maxContextTokens;
-      const total = estimateTokens(systemPrompt) + estimateTokens(userContent) + 2000;
-      if (total > maxCtx) {
-        console.warn('[Ollama] context overflow', { model: ollamaModel, total, max: maxCtx });
-        const lines = userContent.split('\n');
-        while (lines.length > 1 && (estimateTokens(systemPrompt) + estimateTokens(lines.join('\n')) + 2000) > maxCtx) {
-          lines.shift();
-        }
-        userContent = lines.join('\n');
+      const trimmed = trimOllamaUserContentForCtx({
+        modelId: ollamaModel,
+        systemPrompt,
+        userContent,
+        imageCount: imagePaths?.length ?? 0,
+      });
+      userContent = trimmed.userContent;
+      numCtx = trimmed.numCtx;
+      const est = estimateTokens(systemPrompt) + estimateTokens(userContent)
+        + estimateOllamaImageTokenReserve(imagePaths?.length ?? 0);
+      if (est > numCtx) {
+        console.warn('[Ollama] context overflow', { model: ollamaModel, est, numCtx, images: imagePaths?.length ?? 0 });
       }
     }
 
@@ -8500,6 +8694,7 @@ let isMultimodal = !!(imagePaths?.length);
           num_predict: process.env.OLLAMA_MAX_OUTPUT_TOKENS
             ? Number(process.env.OLLAMA_MAX_OUTPUT_TOKENS)
             : undefined,
+          num_ctx: numCtx,
         }
       };
       if (this.isThinkingModel(ollamaModel)) streamBody.think = false;
@@ -8773,6 +8968,30 @@ let isMultimodal = !!(imagePaths?.length);
     return this.useOllama;
   }
 
+  /** Active Ollama model id (empty when not using Ollama). */
+  public getOllamaModelId(): string {
+    return this.ollamaModel || '';
+  }
+
+  /** Cached vision-capable Ollama model (may differ from the text chat model). */
+  public getOllamaVisionModelId(): string | null {
+    return this.ollamaVisionModel;
+  }
+
+  /**
+   * First-useful deadline for the currently selected local provider. Ollama
+   * models >=20B get a longer cap (120s) because cold-load + large-prompt
+   * prefill routinely exceeds 30s on consumer hardware.
+   */
+  public getLocalFirstUsefulDeadlineMs(): number {
+    if (this.useOllama) {
+      const { localFirstUsefulTimeoutMs } = require('./llm/liveDeadlines') as typeof import('./llm/liveDeadlines');
+      return localFirstUsefulTimeoutMs(this.ollamaModel);
+    }
+    const { LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS } = require('./llm/liveDeadlines') as typeof import('./llm/liveDeadlines');
+    return LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS;
+  }
+
   /**
    * Codex CLI is a LOCAL subprocess transport (child_process.spawn → stdin) that
    * cold-loads the model before emitting the first `agent_message.delta` event —
@@ -8906,7 +9125,7 @@ let isMultimodal = !!(imagePaths?.length);
   public async refreshOllamaVisionModel(): Promise<string | null> {
     if (this.ollamaVisionRefreshInFlight) return this.ollamaVisionRefreshInFlight;
     const run = (async (): Promise<string | null> => {
-      if (!this.useOllama) { this.ollamaVisionModel = null; return null; }
+      if (this.isProviderDisabled('ollama')) { this.ollamaVisionModel = null; return null; }
       try {
         const models = await this.getOllamaModels();
         if (models.length === 0) { this.ollamaVisionModel = null; return null; }
@@ -8915,6 +9134,15 @@ let isMultimodal = !!(imagePaths?.length);
         if (this.ollamaModel && models.includes(this.ollamaModel) && await this.probeOllamaVision(this.ollamaModel)) {
           this.ollamaVisionModel = this.ollamaModel;
           return this.ollamaVisionModel;
+        }
+        // Prefer the default vision model (Qwen3-VL-8B-Instruct) when installed.
+        const preferred = pickPreferredOllamaVisionModel(models);
+        if (preferred && await this.probeOllamaVision(preferred)) {
+          this.ollamaVisionModel = preferred;
+          if (preferred !== this.ollamaModel) {
+            console.log(`[LLMHelper] Ollama vision model resolved: ${preferred} (default vision; primary ${this.ollamaModel || 'n/a'} is text-only)`);
+          }
+          return preferred;
         }
         // Otherwise pick the first installed vision-capable model.
         for (const m of models) {

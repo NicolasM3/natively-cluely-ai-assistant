@@ -19,7 +19,35 @@
 // authoritative source; this regex is used when capabilities are absent (older
 // Ollama servers) or the probe failed.
 const OLLAMA_VISION_NAME_RE =
-  /(llava|bakllava|moondream|llama-?3\.2-vision|llama3\.2-vision|gemma3|minicpm-v|qwen2\.5-vl|qwen2-vl|pixtral|llama-?4|granite3\.2-vision|mistral-small3\.1|llama-?guard3-vision)/i;
+  /(llava|bakllava|moondream|llama-?3\.2-vision|llama3\.2-vision|gemma3|gemma4|minicpm-v|qwen3-vl|qwen2\.5-vl|qwen2-vl|pixtral|llama-?4|granite3\.2-vision|mistral-small3\.1|llama-?guard3-vision)/i;
+
+/** Default local vision model — used when installed alongside a text-only chat model. */
+export const PREFERRED_OLLAMA_VISION_MODEL = 'qwen3-vl:8b-instruct';
+
+/** Ordered preference list; first installed match wins. */
+export const PREFERRED_OLLAMA_VISION_MODELS = [
+  PREFERRED_OLLAMA_VISION_MODEL,
+  'qwen3-vl:8b',
+  'qwen3-vl:8b-instruct-bf16',
+] as const;
+
+/**
+ * Pick the best installed Ollama vision model, preferring Qwen3-VL-8B-Instruct
+ * when present. Returns the exact installed tag (case preserved).
+ */
+export function pickPreferredOllamaVisionModel(installed: string[]): string | null {
+  if (!installed?.length) return null;
+  const byLower = new Map(installed.map((m) => [m.toLowerCase(), m]));
+  for (const pref of PREFERRED_OLLAMA_VISION_MODELS) {
+    const exact = byLower.get(pref.toLowerCase());
+    if (exact) return exact;
+  }
+  for (const pref of PREFERRED_OLLAMA_VISION_MODELS) {
+    const partial = installed.find((m) => m.toLowerCase().startsWith(`${pref.toLowerCase()}`));
+    if (partial) return partial;
+  }
+  return null;
+}
 
 export function isOllamaVisionModelByName(modelId: string): boolean {
   return !!modelId && OLLAMA_VISION_NAME_RE.test(modelId.toLowerCase());

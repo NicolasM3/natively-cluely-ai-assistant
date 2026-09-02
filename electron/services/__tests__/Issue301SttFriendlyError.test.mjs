@@ -63,7 +63,7 @@ test('sttErrorMapper auth category covers all NativelyPro fatal error codes', ()
 test('sttErrorMapper maps trial_expired to a user-friendly Trial Expired message', () => {
   const source = read('src/lib/sttErrorMapper.ts');
   assert.match(source, /Trial Expired/, 'must have Trial Expired title');
-  assert.match(source, /trial has ended|Upgrade your plan/, 'must give upgrade guidance');
+  assert.match(source, /trial period has ended/, 'must explain trial expiry without upgrade CTA');
 });
 
 test('LocalWhisperSTT emits a friendly error for ONNX symbol-not-found crash (macOS 12)', () => {

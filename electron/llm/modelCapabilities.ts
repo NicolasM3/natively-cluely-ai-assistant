@@ -32,7 +32,8 @@ const KNOWN_OLLAMA_NATIVE_CTX: Array<[RegExp, number]> = [
   [/^llama3\.2/i, 128_000],
   [/^llama3(?![.\d])/i, 8_000],
   [/^phi3/i, 128_000],
-  [/^gemma2/i, 8_000],
+  [/^gemma4/i, 256_000],
+  [/^gemma3/i, 128_000],
   [/^mistral/i, 32_000],
   [/^codellama/i, 16_000],
   [/^deepseek-coder/i, 16_000],
@@ -101,7 +102,22 @@ export function parseOllamaSize(id: string): number | null {
 // Vision-capable Ollama families.
 function ollamaSupportsImages(id: string): boolean {
   const s = id.toLowerCase();
-  return /llava|bakllava|moondream|llama3\.2-vision|llama-3\.2-vision|gemma3|minicpm-v|qwen2\.5-vl|qwen2-vl|pixtral/.test(s);
+  return /llava|bakllava|moondream|llama3\.2-vision|llama-3\.2-vision|gemma3|gemma4|minicpm-v|qwen3-vl|qwen2\.5-vl|qwen2-vl|pixtral/.test(s);
+}
+
+/** True when an Ollama model id is embedding-only (no /api/chat completion). */
+export function isOllamaEmbeddingOnlyModel(modelId: string): boolean {
+  const s = (modelId || '').toLowerCase();
+  if (!s) return false;
+  return /\b(embed(?:ding)?|nomic-embed|bge-|mxbai-embed|snowflake-arctic-embed|e5-|gte-)\b/.test(s)
+    || /-embed[-:]/i.test(s)
+    || s.includes('embed-text')
+    || s.startsWith('embedding');
+}
+
+/** Drop embedding-only Ollama models from a chat-model candidate list. */
+export function filterOllamaChatModels(models: string[]): string[] {
+  return (models ?? []).filter((m) => typeof m === 'string' && m.trim() && !isOllamaEmbeddingOnlyModel(m));
 }
 
 export function getModelCapabilities(modelId: string, isOllama: boolean): ModelCapabilities {
@@ -199,6 +215,62 @@ export function selectPromptTier(modelId: string, isOllama: boolean): PromptTier
 export function estimateTokens(text: string): number {
   if (!text) return 0;
   return Math.ceil(text.length / 4);
+}
+
+/**
+ * Ollama defaults `num_ctx` to 4096 unless the request sets `options.num_ctx`.
+ * Our model-card budgets assume the native window (e.g. 32k for qwen3*) — without
+ * this, a 6k+ prompt (system + image) 400s with exceed_context_size_error even
+ * though getModelCapabilities reports a larger maxContextTokens.
+ */
+export function ollamaRequestNumCtx(modelId: string): number {
+  return Math.min(getModelCapabilities(modelId, true).maxContextTokens, 32_000);
+}
+
+/** Conservative preflight reserve per attached image (vision encodings are not text). */
+export function estimateOllamaImageTokenReserve(imageCount: number): number {
+  if (imageCount <= 0) return 0;
+  return imageCount * 1500;
+}
+
+/**
+ * Trim user content to fit within the Ollama request's num_ctx, reserving space
+ * for vision encodings and completion output.
+ */
+export function trimOllamaUserContentForCtx(opts: {
+  modelId: string;
+  systemPrompt: string;
+  userContent: string;
+  imageCount?: number;
+  outputReserve?: number;
+}): { userContent: string; numCtx: number } {
+  const numCtx = ollamaRequestNumCtx(opts.modelId);
+  const imageReserve = estimateOllamaImageTokenReserve(opts.imageCount ?? 0);
+  const outputReserve = opts.outputReserve ?? 2000;
+  const maxTextTokens = Math.max(256, numCtx - imageReserve - outputReserve);
+  let userContent = opts.userContent;
+  const sysTokens = estimateTokens(opts.systemPrompt);
+  const fits = () => sysTokens + estimateTokens(userContent) <= maxTextTokens;
+  if (!fits()) {
+    const lines = userContent.split('\n');
+    while (lines.length > 1 && !fits()) {
+      lines.shift();
+      userContent = lines.join('\n');
+    }
+    if (!fits() && userContent.length > 0) {
+      // Single-line (or still too large): drop leading chars until it fits.
+      let lo = 0;
+      let hi = userContent.length;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        const candidate = userContent.slice(mid);
+        if (sysTokens + estimateTokens(candidate) <= maxTextTokens) hi = mid - 1;
+        else lo = mid;
+      }
+      userContent = userContent.slice(lo);
+    }
+  }
+  return { userContent, numCtx };
 }
 
 // Per-model max output (completion) token ceiling for the OpenAI Chat Completions

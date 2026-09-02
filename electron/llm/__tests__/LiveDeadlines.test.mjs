@@ -13,7 +13,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { raceStreamWithDeadline, firstUsefulDeadlineMs,
   LIVE_PROVIDER_FIRST_USEFUL_HARD_TIMEOUT_MS, LIVE_INTER_TOKEN_STALL_MS,
-  LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS } = await import(
+  LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS, LIVE_LOCAL_LARGE_FIRST_USEFUL_TIMEOUT_MS,
+  localFirstUsefulTimeoutMs } = await import(
   pathToFileURL(path.resolve(__dirname, '../../../dist-electron/electron/llm/index.js')).href
 );
 
@@ -132,6 +133,18 @@ describe('Issue 1: live-deadline harness aborts stalled providers', () => {
     // Default (cloud) is unchanged and far shorter — back-compat for existing callers.
     assert.equal(firstUsefulDeadlineMs('identity_answer'), LIVE_PROVIDER_FIRST_USEFUL_HARD_TIMEOUT_MS);
     assert.ok(firstUsefulDeadlineMs('coding_question_answer', false) < LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS);
+  });
+
+  test('localFirstUsefulTimeoutMs scales up for 20B+ Ollama models', () => {
+    assert.equal(
+      localFirstUsefulTimeoutMs('MichelRosselli/bonsai-27b:latest'),
+      LIVE_LOCAL_LARGE_FIRST_USEFUL_TIMEOUT_MS,
+    );
+    assert.equal(localFirstUsefulTimeoutMs('qwen3.5:9b'), LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS);
+    assert.equal(
+      firstUsefulDeadlineMs('general_meeting_answer', true, false, 'MichelRosselli/bonsai-27b:latest'),
+      LIVE_LOCAL_LARGE_FIRST_USEFUL_TIMEOUT_MS,
+    );
   });
 
   test('a local model that produces its first token AFTER the cloud cap but WITHIN the local budget is NOT aborted', async () => {

@@ -112,13 +112,18 @@ describe('privacy indicator shares the enforcement predicate', () => {
   });
 
   test('the two predicates genuinely differ — the split is not decorative', async () => {
-    const h = helperWith({ selected: true, models: [TEXT_MODEL] });
+    const h = helperWith({ selected: true, models: [TEXT_MODEL, 'llama3'] });
     const vision = await h.scopeFallbackAvailable(true);
     const text = await h.scopeFallbackAvailable(false);
     assert.notEqual(
       vision, text,
       'if these can never disagree, one shared boolean would have been correct and this fix is pointless',
     );
+  });
+
+  test('embedding-only install is NOT a text fallback', async () => {
+    const h = helperWith({ selected: true, models: [TEXT_MODEL] });
+    assert.equal(await h.scopeFallbackAvailable(false), false);
   });
 
   test('an unreachable daemon fails CLOSED, never claiming on-device', async () => {
@@ -150,14 +155,17 @@ describe('privacy indicator shares the enforcement predicate', () => {
     );
   });
 
-  test('a stale model resolving to a TEXT-only install still reports no vision fallback', async () => {
+  test('a stale model resolving to an embedding-only install reports no fallback', async () => {
     const h = helperWith({ selected: true, models: [TEXT_MODEL] });
     h.ollamaModel = 'deleted-vision-model:7b';
     assert.equal(
       await h.scopeFallbackAvailable(true), false,
-      'resolving a stale name must not accidentally promote a text-only install to vision',
+      'embedding-only models must not be promoted to a vision fallback',
     );
-    assert.equal(await h.scopeFallbackAvailable(false), true);
+    assert.equal(
+      await h.scopeFallbackAvailable(false), false,
+      'embedding-only models must not be promoted to a text fallback',
+    );
   });
 
   test('the probe does NOT mutate the selected model (Settings polls it every 3s)', async () => {

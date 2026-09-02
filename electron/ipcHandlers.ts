@@ -22,11 +22,11 @@ import { SkillsManager } from './services/SkillsManager';
 import { SAFE_DOCUMENT_EXTENSIONS } from './services/SafeDocumentTextExtractor';
 import { DEFAULT_BUILTIN_SKILL_IDS, type SkillUploadPayload } from './services/skills/SkillValidator';
 
-import { TRIAL_SENTINEL_KEY, DOM_CONTEXT_MAX_CHARS } from './config/constants';
+import { TRIAL_SENTINEL_KEY, DOM_CONTEXT_MAX_CHARS, HINDSIGHT_DEFAULT_BASE_URL } from './config/constants';
 import { AI_RESPONSE_LANGUAGES, RECOGNITION_LANGUAGES } from './config/languages';
 import { resolveCodingPromptSignals } from './llm/codingPromptSignals';
 import { isBareCodeRequest, looksLikeCodingAnswer, buildPriorCodingContextBlock as buildPriorCodingBlockForV3 } from './llm/codingFollowup';
-import { planAnswer, formatAnswerPlanForPrompt, isCodingAnswerType, validateAnswerStructure, validateProfileOutput, validateProfileEvidence, buildProfileRepairInstruction, raceStreamWithDeadline, firstUsefulDeadlineMs, LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS, CODING_REGEN_ABORT_CHARS, isStealthEvasionQuestion, stripProfileTokensFromCoding, isBareFollowUp, isRefinementFollowUp, buildContextFreeClarification, sanitizeCandidateAnswer, acceptRepairedAnswer, CANDIDATE_VOICE_ANSWER_TYPES, detectAssistantVoiceMisfire, ASSISTANT_VOICE_ANSWER_TYPES, piTelemetry, classifyProviderError, detectExplicitCodingContract, isCodingContinuation, buildPriorCodingContextBlock, buildCodingContractPrompt, explicitContractProducesCode, CODING_VERIFICATION_INSTRUCTION, humanizeDirectiveFor, detectCorporateFiller, humanizeForAnswerType, applySpeakabilityBudget, compressTechnicalConcept, checkCodeCompleteness, varySpokenOpening, type ExplicitCodingContract, type AnswerType } from './llm';
+import { planAnswer, formatAnswerPlanForPrompt, isCodingAnswerType, validateAnswerStructure, validateProfileOutput, validateProfileEvidence, buildProfileRepairInstruction, raceStreamWithDeadline, firstUsefulDeadlineMs, LIVE_TOTAL_HARD_TIMEOUT_MS, CODING_REGEN_ABORT_CHARS, isStealthEvasionQuestion, stripProfileTokensFromCoding, isBareFollowUp, isRefinementFollowUp, buildContextFreeClarification, sanitizeCandidateAnswer, acceptRepairedAnswer, CANDIDATE_VOICE_ANSWER_TYPES, detectAssistantVoiceMisfire, ASSISTANT_VOICE_ANSWER_TYPES, piTelemetry, classifyProviderError, detectExplicitCodingContract, isCodingContinuation, buildPriorCodingContextBlock, buildCodingContractPrompt, explicitContractProducesCode, CODING_VERIFICATION_INSTRUCTION, humanizeDirectiveFor, detectCorporateFiller, humanizeForAnswerType, applySpeakabilityBudget, compressTechnicalConcept, checkCodeCompleteness, varySpokenOpening, type ExplicitCodingContract, type AnswerType } from './llm';
 import { stripPriorAssistantTurns } from './llm/conversationHistoryPolicy';
 import { mintTurnId } from './llm/turnIdentity';
 import type { StreamRouteOptions } from './llm/streamContextPolicy';
@@ -332,48 +332,13 @@ export function initializeIpcHandlers(appState: AppState): void {
   };
 
   /**
-   * Returns true if the user has an active premium license OR an unexpired free trial.
-   * Used to gate profile intelligence features (resume upload, JD upload, company research, etc.).
+   * Premium/trial gating disabled — all profile and modes features are unlocked.
    */
-  const isProOrTrialActive = (): boolean => {
-    // 1. Full premium license (Dodo / Gumroad / Natively API subscription)
-    try {
-      const { LicenseManager } = require('../premium/electron/services/LicenseManager');
-      if (LicenseManager.getInstance().isPremium()) return true;
-    } catch {
-      /* premium module not available */
-    }
-
-    // 2. Active free trial (token present and not expired)
-    try {
-      const { CredentialsManager } = require('./services/CredentialsManager');
-      const cm = CredentialsManager.getInstance();
-      const token = cm.getTrialToken();
-      if (!token) return false;
-      const expiresAt = cm.getTrialExpiresAt();
-      if (!expiresAt) return false;
-      return new Date(expiresAt).getTime() > Date.now();
-    } catch {
-      return false;
-    }
-  };
+  const isProOrTrialActive = (): boolean => true;
 
   // Clears premium-only context when the pro license is lost.
   const clearActiveModeOnLicenseLoss = (): void => {
-    try {
-      // Through ModesManager, not DatabaseManager, so the active-mode snapshot
-      // is invalidated with the write. Clearing the row directly left every
-      // answer surface still holding the premium mode it had cached — the
-      // context this function exists to remove.
-      const { ModesManager } = require('./services/ModesManager');
-      ModesManager.getInstance().setActiveMode(null);
-      BrowserWindow.getAllWindows().forEach((win) => {
-        if (!win.isDestroyed()) win.webContents.send('modes-active-cleared');
-      });
-      console.log('[IPC] Premium-only context cleared due to license loss');
-    } catch (e) {
-      /* non-fatal */
-    }
+    /* Premium gating disabled — no-op */
   };
 
   // --- NEW Test Helper ---
@@ -445,34 +410,10 @@ export function initializeIpcHandlers(appState: AppState): void {
       return { success: false, error: 'Premium features not available in this build.' };
     }
   });
-  safeHandle('license:check-premium', async () => {
-    try {
-      const { LicenseManager } = require('../premium/electron/services/LicenseManager');
-      return LicenseManager.getInstance().isPremium();
-    } catch {
-      return false;
-    }
-  });
-
-  safeHandle('license:get-details', async () => {
-    try {
-      const { LicenseManager } = require('../premium/electron/services/LicenseManager');
-      return LicenseManager.getInstance().getLicenseDetails();
-    } catch {
-      return { isPremium: false };
-    }
-  });
-  // Async variant: performs Dodo server-side revocation check on startup.
-  // Returns false only if the server definitively revokes the key.
-  // Network errors fail-open (returns cached sync result).
-  safeHandle('license:check-premium-async', async () => {
-    try {
-      const { LicenseManager } = require('../premium/electron/services/LicenseManager');
-      return await LicenseManager.getInstance().isPremiumAsync();
-    } catch {
-      return false;
-    }
-  });
+  safeHandle('license:check-premium', async () => true);
+  safeHandle('license:get-details', async () => ({ isPremium: true }));
+  // Async variant kept for callers that prefer it — always unlocked.
+  safeHandle('license:check-premium-async', async () => true);
   safeHandle('license:deactivate', async () => {
     try {
       const { LicenseManager } = require('../premium/electron/services/LicenseManager');
@@ -3455,6 +3396,14 @@ export function initializeIpcHandlers(appState: AppState): void {
             providerAttempts: 1,
           });
           chatTrace.mark('provider_request_started', { ignoreKnowledgeMode: Boolean(ignoreKnowledge) });
+          const knowledgeModeActive = !ignoreKnowledge
+            && llmHelper.getKnowledgeOrchestrator?.()?.isKnowledgeMode?.() === true;
+          const knowledgePrefetchMs = knowledgeModeActive
+            ? await llmHelper.prefetchKnowledgeIntercept(message, {
+              ignoreKnowledgeMode: ignoreKnowledge,
+              pinnedModeId: manualActiveMode?.id ?? null,
+            })
+            : 0;
           const stream = llmHelper.streamChat(
             message,
             imagePaths,
@@ -3646,11 +3595,23 @@ export function initializeIpcHandlers(appState: AppState): void {
           // F-301: on the natively-api route the server rotates providers at
           // 10s; give it room to rescue the turn instead of aborting at 7s.
           const viaServerCascade = llmHelper.isUsingNativelyServerCascade?.() === true;
+          // Cloud manual chat must match the WTA live-deadline contract
+          // (LIVE_TOTAL_HARD_TIMEOUT_MS = 13s). Logs showed first_useful_timeout
+          // at 7003ms with fullResponseLen:0 while Gemini cascade / Natively
+          // last-resort / pre-stream work still had no token — the 7s cloud cap
+          // is too tight for the same _streamChatInner path WTA already runs at
+          // 13s. Local providers keep the long cold-load budget.
+          const manualFirstUsefulDeadlineMs = usingLocalLlm
+            ? (llmHelper.isUsingOllama()
+              ? llmHelper.getLocalFirstUsefulDeadlineMs()
+              : firstUsefulDeadlineMs(answerPlan.answerType, usingLocalLlm, viaServerCascade))
+            : LIVE_TOTAL_HARD_TIMEOUT_MS;
           let manualFirstUseful = false;
+          let manualFirstUsefulLogged = false;
           let manualSuperseded = false;
-          await raceStreamWithDeadline({
+          const manualRaceOutcome = await raceStreamWithDeadline({
             stream: stream as AsyncGenerator<string>,
-            firstUsefulDeadlineMs: firstUsefulDeadlineMs(answerPlan.answerType, usingLocalLlm, viaServerCascade),
+            firstUsefulDeadlineMs: manualFirstUsefulDeadlineMs,
             isUsefulYet: () => manualFirstUseful,
             shouldAbort: () => {
               if (_chatStreamsBySender.get(senderId)?.streamId !== myStreamId) {
@@ -3679,6 +3640,7 @@ export function initializeIpcHandlers(appState: AppState): void {
               // R-09: concatenate THEN trim once — trimming each side separately
               // loses the interior whitespace ("a b" + " c" counted 4, not 5).
               if ((fullResponse + token).trim().length >= 5) {
+                if (!manualFirstUsefulLogged) manualFirstUsefulLogged = true;
                 manualFirstUseful = true;
               }
               // First token back from the provider — the gap from
@@ -3804,7 +3766,7 @@ export function initializeIpcHandlers(appState: AppState): void {
                 const regenAbort = new AbortController();
                 await raceStreamWithDeadline({
                   stream: llmHelper.streamChat(regenPrompt, undefined, codingPriorProblemBlock || undefined, undefined, true, true, [], regenAbort.signal) as AsyncGenerator<string>,
-                  firstUsefulDeadlineMs: usingLocalLlm ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 8000,
+                  firstUsefulDeadlineMs: usingLocalLlm ? llmHelper.getLocalFirstUsefulDeadlineMs() : 8000,
                   isUsefulYet: () => regen.length >= 10,
                   shouldAbort: () => regen.length > CODING_REGEN_ABORT_CHARS,
                   onToken: (tok: string) => { regen += tok; },
@@ -3913,7 +3875,7 @@ export function initializeIpcHandlers(appState: AppState): void {
                 const regenAbort = new AbortController();
                 await raceStreamWithDeadline({
                   stream: llmHelper.streamChat(regenPrompt, undefined, codingPriorProblemBlock || undefined, undefined, true, true, [], regenAbort.signal) as AsyncGenerator<string>,
-                  firstUsefulDeadlineMs: usingLocalLlm ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 8000,
+                  firstUsefulDeadlineMs: usingLocalLlm ? llmHelper.getLocalFirstUsefulDeadlineMs() : 8000,
                   isUsefulYet: () => regen.length >= 10,
                   shouldAbort: () => regen.length > CODING_REGEN_ABORT_CHARS,
                   onToken: (tok: string) => { regen += tok; },
@@ -4030,7 +3992,7 @@ export function initializeIpcHandlers(appState: AppState): void {
                   // Local model: longer budget for the same cold-load reason as above.
                   await raceStreamWithDeadline({
                     stream: llmHelper.streamChat(repairPrompt, undefined, undefined, undefined, true, true) as AsyncGenerator<string>,
-                    firstUsefulDeadlineMs: usingLocalLlm ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                    firstUsefulDeadlineMs: usingLocalLlm ? llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                     isUsefulYet: () => repaired.length >= 5,
                     shouldAbort: () => repaired.length > 1200,
                     onToken: (tok: string) => { repaired += tok; },
@@ -5045,7 +5007,7 @@ export function initializeIpcHandlers(appState: AppState): void {
                     // after extraDataScopes) to also satisfy the compiler —
                     // passing it as arg #7 typechecked as ProviderDataScope[].
                     stream: llmHelper.streamChat(strictPrompt, undefined, undefined, regenSystemPrompt, true, true, [], regenAbort.signal) as AsyncGenerator<string>,
-                    firstUsefulDeadlineMs: usingLocalLlm ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                    firstUsefulDeadlineMs: usingLocalLlm ? llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                     isUsefulYet: () => regen.length >= 8,
                     shouldAbort: () => regen.length > 2000,
                     onToken: (tok: string) => { regen += tok; },
@@ -6024,7 +5986,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       // config so the renderer never has to re-derive isLocalTarget itself.
       const storedUrl = String(sm.get('hindsightBaseUrl') || '');
       return {
-        baseUrl: cfg?.baseUrl || 'http://localhost:8888',
+        baseUrl: cfg?.baseUrl || HINDSIGHT_DEFAULT_BASE_URL,
         hasApiKey: Boolean(sm.get('hindsightApiKey')),
         autoStart: sm.get('hindsightAutoStart') !== false, // default on
         serverCommand: String(sm.get('hindsightServerCommand') || ''),
@@ -6037,7 +5999,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       };
     } catch (e: any) {
       console.warn('[HindsightConfig] get failed:', e?.message);
-      return { baseUrl: 'http://localhost:8888', hasApiKey: false, autoStart: true, serverCommand: '', llmProvider: '', mode: 'local' as const, synthetic: true, explicitlyDisabled: false, available: false, authFailed: false };
+      return { baseUrl: HINDSIGHT_DEFAULT_BASE_URL, hasApiKey: false, autoStart: true, serverCommand: '', llmProvider: '', mode: 'local' as const, synthetic: true, explicitlyDisabled: false, available: false, authFailed: false };
     }
   });
 
@@ -6462,7 +6424,8 @@ export function initializeIpcHandlers(appState: AppState): void {
   safeHandle('get-available-ollama-models', async () => {
     try {
       const llmHelper = appState.processingHelper.getLLMHelper();
-      const models = await llmHelper.getOllamaModels();
+      const { filterOllamaChatModels } = require('./llm/modelCapabilities') as typeof import('./llm/modelCapabilities');
+      const models = filterOllamaChatModels(await llmHelper.getOllamaModels());
       return models;
     } catch (error: any) {
       // console.error("Error getting Ollama models:", error);
@@ -8960,17 +8923,9 @@ export function initializeIpcHandlers(appState: AppState): void {
         let response;
 
         if (provider === 'gemini') {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent`;
-          response = await axios.post(
-            url,
-            {
-              contents: [{ parts: [{ text: 'Hello' }] }],
-            },
-            {
-              headers: { 'x-goog-api-key': apiKey },
-              timeout: 15000,
-            },
-          );
+          const { probeGeminiApiKey } = require('./llm/geminiModels') as typeof import('./llm/geminiModels');
+          const geminiProbe = await probeGeminiApiKey(apiKey, axios);
+          return geminiProbe;
         } else if (provider === 'groq') {
           // Walk the ladder instead of pinning one id. The preferred Groq model
           // is PREVIEW tier and Groq discontinues preview models without notice —
@@ -10949,8 +10904,6 @@ export function initializeIpcHandlers(appState: AppState): void {
     if (!ragManager || !ragManager.isReady()) {
       return { fallback: true };
     }
-
-    // Check if JIT indexing is active AND has at least one embedded chunk.
     // isLiveIndexingActive() only tells us the indexer is running — it may have
     // received segments but not yet produced queryable embeddings. Calling
     // queryMeeting() with zero chunks throws NO_MEETING_EMBEDDINGS, adding
@@ -11294,15 +11247,16 @@ export function initializeIpcHandlers(appState: AppState): void {
       if (!orchestrator) {
         return { success: false, error: 'Knowledge engine not initialized' };
       }
-      const { DocType } = require('../premium/electron/knowledge/types');
-      // Both tiers in ONE transaction. Deleting only Tier 1 here left Tier 2's
-      // PII-bearing knowledge_cards orphaned — the user asked for their résumé
-      // to be removed and half of it stayed on disk. Tier 1 (premium
-      // KnowledgeDatabaseManager) and Tier 2 (this repo's DatabaseManager) wrap
-      // the SAME better-sqlite3 connection, so runInTransaction() is a genuine
-      // cross-tier rollback rather than call sequencing.
-      const { deleteProfileTransactional } = require('./services/knowledge/deleteProfileTransactional') as typeof import('./services/knowledge/deleteProfileTransactional');
-      deleteProfileTransactional(orchestrator, DocType.RESUME, 'resume');
+      if (typeof orchestrator.deleteDocumentsByType !== 'function') {
+        return { success: false, error: 'Profile delete is not supported by the active knowledge engine.' };
+      }
+      try {
+        const { DocType } = require('../premium/electron/knowledge/types');
+        const { deleteProfileTransactional } = require('./services/knowledge/deleteProfileTransactional') as typeof import('./services/knowledge/deleteProfileTransactional');
+        deleteProfileTransactional(orchestrator, DocType.RESUME, 'resume');
+      } catch {
+        orchestrator.deleteDocumentsByType('resume');
+      }
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -11366,6 +11320,73 @@ export function initializeIpcHandlers(appState: AppState): void {
       return { success: true, filePath: selected };
     } catch (error: any) {
       return { success: false, error: error.message };
+    }
+  });
+
+  safeHandle('profile:select-folder', async () => {
+    try {
+      const result: any = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return { cancelled: true };
+      }
+      return { success: true, folderPath: result.filePaths[0] };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  safeHandle('profile:sync-folder', async (_, folderPath?: string) => {
+    try {
+      const { LocalProfileFolderService } = require('./services/localProfile/LocalProfileFolderService') as typeof import('./services/localProfile/LocalProfileFolderService');
+      const folderService = LocalProfileFolderService.getInstance();
+      const status = folderPath
+        ? await folderService.setFolderPath(String(folderPath))
+        : await folderService.syncFolder();
+
+      const orchestrator = appState.getKnowledgeOrchestrator();
+      if (orchestrator && typeof orchestrator.refreshFromFolderService === 'function') {
+        orchestrator.refreshFromFolderService();
+      } else if (orchestrator && typeof orchestrator.setKnowledgeMode === 'function') {
+        orchestrator.setKnowledgeMode(true);
+        SettingsManager.getInstance().set('knowledgeMode', true);
+      }
+
+      const activeResume = (orchestrator as any)?.activeResume?.structured_data ?? null;
+      const vectorIndex = typeof (orchestrator as any)?.getVectorIndexStatus === 'function'
+        ? (orchestrator as any).getVectorIndexStatus()
+        : undefined;
+      return {
+        success: true,
+        status,
+        profileFactsReady: Boolean(activeResume),
+        vectorIndex,
+      };
+    } catch (error: any) {
+      console.error('[IPC] profile:sync-folder error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  safeHandle('profile:get-folder-status', async () => {
+    try {
+      const { LocalProfileFolderService } = require('./services/localProfile/LocalProfileFolderService') as typeof import('./services/localProfile/LocalProfileFolderService');
+      const folderStatus = LocalProfileFolderService.getInstance().getStatus();
+      const orchestrator = appState.getKnowledgeOrchestrator();
+      const vectorIndex = typeof (orchestrator as any)?.getVectorIndexStatus === 'function'
+        ? (orchestrator as any).getVectorIndexStatus()
+        : undefined;
+      return { ...folderStatus, vectorIndex };
+    } catch (error: any) {
+      return {
+        folderPath: null,
+        fileCount: 0,
+        lastSyncedAt: null,
+        files: [],
+        hasProfile: false,
+        error: error.message,
+      };
     }
   });
 
@@ -13596,7 +13617,11 @@ export function initializeIpcHandlers(appState: AppState): void {
         const phoneViaServerCascade = llmHelper.isUsingNativelyServerCascade?.() === true;
         await raceStreamWithDeadline({
           stream: stream as AsyncGenerator<string>,
-          firstUsefulDeadlineMs: firstUsefulDeadlineMs('general_meeting_answer', phoneUsingLocalLlm, phoneViaServerCascade),
+          firstUsefulDeadlineMs: phoneUsingLocalLlm
+            ? (llmHelper.isUsingOllama()
+              ? llmHelper.getLocalFirstUsefulDeadlineMs()
+              : firstUsefulDeadlineMs('general_meeting_answer', phoneUsingLocalLlm, phoneViaServerCascade))
+            : firstUsefulDeadlineMs('general_meeting_answer', phoneUsingLocalLlm, phoneViaServerCascade),
           isUsefulYet: () => full.trim().length >= 5,
           shouldAbort: () => {
             if (_phoneChatLatestId !== myPhoneId) {

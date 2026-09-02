@@ -17,13 +17,15 @@ const {
   isOllamaVisionModelByName,
   ollamaVisionFromShow,
   resolveOllamaVision,
+  pickPreferredOllamaVisionModel,
+  PREFERRED_OLLAMA_VISION_MODEL,
   customProviderSupportsVision,
   customProviderIsLocal,
 } = await import(pathToFileURL(modPath).href);
 
 describe('isOllamaVisionModelByName', () => {
   for (const m of ['llava:13b', 'llava-llama3', 'bakllava', 'moondream', 'llama3.2-vision',
-                   'minicpm-v', 'qwen2.5-vl:7b', 'pixtral-12b', 'gemma3:4b', 'llama4:scout',
+                   'minicpm-v', 'qwen3-vl:8b-instruct', 'qwen2.5-vl:7b', 'pixtral-12b', 'gemma3:4b', 'gemma4:12b', 'llama4:scout',
                    'granite3.2-vision', 'mistral-small3.1']) {
     test(`recognizes vision model: ${m}`, () => assert.equal(isOllamaVisionModelByName(m), true));
   }
@@ -58,6 +60,25 @@ describe('resolveOllamaVision', () => {
   test('null probe falls back to name heuristic', () => {
     assert.equal(resolveOllamaVision('llava:13b', null), true);
     assert.equal(resolveOllamaVision('llama3.3:70b', null), false);
+  });
+});
+
+describe('pickPreferredOllamaVisionModel', () => {
+  test('prefers qwen3-vl:8b-instruct over other vision models', () => {
+    const installed = ['qwen3.5:9b', 'llava:7b', 'qwen3-vl:8b-instruct'];
+    assert.equal(pickPreferredOllamaVisionModel(installed), 'qwen3-vl:8b-instruct');
+  });
+  test('falls back to qwen3-vl:8b tag', () => {
+    assert.equal(
+      pickPreferredOllamaVisionModel(['qwen3.5:9b', 'qwen3-vl:8b']),
+      'qwen3-vl:8b',
+    );
+  });
+  test('returns null when no preferred vision model is installed', () => {
+    assert.equal(pickPreferredOllamaVisionModel(['qwen3.5:9b', 'llama3.3:70b']), null);
+  });
+  test('default constant matches primary preference', () => {
+    assert.equal(PREFERRED_OLLAMA_VISION_MODEL, 'qwen3-vl:8b-instruct');
   });
 });
 

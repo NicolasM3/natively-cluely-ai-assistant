@@ -19,6 +19,9 @@ const {
   parseOllamaSize,
   getModelCapabilities,
   selectPromptTier,
+  ollamaRequestNumCtx,
+  trimOllamaUserContentForCtx,
+  estimateOllamaImageTokenReserve,
 } = await import(
   pathToFileURL(path.resolve(__dirname, '../../../dist-electron/electron/llm/modelCapabilities.js')).href
 );
@@ -237,5 +240,25 @@ describe('firstUsefulDeadlineMs — local Ollama gets 30s first-useful budget', 
     // Pin: a healthy 7B cold-load takes 8-12s. If the cloud 7s cap ever leaks
     // into the local path, every cold-load aborts to the canned fallback.
     assert.ok(LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS > 7_000, 'local must exceed cloud 7s cap');
+  });
+});
+
+describe('ollamaRequestNumCtx — must exceed Ollama default 4096', () => {
+  test('qwen3-vl gets 32k num_ctx (not the 4096 server default)', () => {
+    assert.equal(ollamaRequestNumCtx('qwen3-vl:8b-instruct'), 32_000);
+  });
+
+  test('trim reserves image tokens so text+vision fits num_ctx', () => {
+    const sys = 'x'.repeat(20_000);
+    const user = 'y'.repeat(120_000);
+    const { userContent, numCtx } = trimOllamaUserContentForCtx({
+      modelId: 'qwen3-vl:8b-instruct',
+      systemPrompt: sys,
+      userContent: user,
+      imageCount: 1,
+    });
+    assert.equal(numCtx, 32_000);
+    assert.ok(userContent.length < user.length, 'overflowing user content is trimmed');
+    assert.equal(estimateOllamaImageTokenReserve(1), 1500);
   });
 });

@@ -65,6 +65,20 @@ export class GeminiPromptCache {
   private entries = new Map<string, CacheEntry>();
   /** In-flight creation promises keyed by hash — for dedupe under concurrency. */
   private inflight = new Map<string, Promise<string | null>>();
+  /** Models where explicit caching is structurally unavailable (e.g. free-tier limit=0). */
+  private cachingDisabledModels = new Set<string>();
+
+  private isCachingDisabled(model: string): boolean {
+    return this.cachingDisabledModels.has(model);
+  }
+
+  private markCachingDisabled(model: string, reason: string): void {
+    if (this.cachingDisabledModels.has(model)) return;
+    this.cachingDisabledModels.add(model);
+    console.warn(
+      `[GeminiPromptCache] explicit caching unavailable for model=${model} (${reason}); using systemInstruction.`
+    );
+  }
 
   /**
    * Return the cache resource name for (model, systemPrompt), creating it if
@@ -76,6 +90,7 @@ export class GeminiPromptCache {
     model: string,
     systemPrompt: string
   ): Promise<string | null> {
+    if (this.isCachingDisabled(model)) return null;
     if (!systemPrompt || systemPrompt.length < MIN_PROMPT_CHARS) return null;
 
     const key = this.hashKey(model, systemPrompt);
@@ -120,6 +135,7 @@ export class GeminiPromptCache {
     model: string,
     systemPrompt: string
   ): string | null {
+    if (this.isCachingDisabled(model)) return null;
     if (!systemPrompt || systemPrompt.length < MIN_PROMPT_CHARS) return null;
 
     const key = this.hashKey(model, systemPrompt);
@@ -170,6 +186,7 @@ export class GeminiPromptCache {
   clear(): void {
     this.entries.clear();
     this.inflight.clear();
+    this.cachingDisabledModels.clear();
   }
 
   /** For diagnostics. */
@@ -183,6 +200,7 @@ export class GeminiPromptCache {
     systemPrompt: string,
     key: string
   ): Promise<string | null> {
+    if (this.isCachingDisabled(model)) return null;
     try {
       // Gemini requires both `contents` AND `systemInstruction` to have non-empty
       // bodies. We use a one-token placeholder for contents so the entire prompt
@@ -208,15 +226,18 @@ export class GeminiPromptCache {
       console.log(`[GeminiPromptCache] created ${name} for model=${model} (${systemPrompt.length} chars)`);
       return name;
     } catch (err: any) {
-      // Non-fatal. Common reasons: prompt below model minimum, model doesn't
-      // support caching, transient 5xx. We log once and fall back to
-      // systemInstruction on every subsequent call for this key until the
-      // process restarts — there's no value in retrying create on every turn
-      // when the underlying constraint is structural.
-      console.warn(
-        `[GeminiPromptCache] caches.create failed for model=${model}: ${err?.message || err}. ` +
-        `Falling back to systemInstruction.`
-      );
+      const errMsg = String(err?.message || err);
+      const isFreeTierLimitZero =
+        /FreeTier/i.test(errMsg) ||
+        (/limit=0/i.test(errMsg) && /TotalCachedContentStorageTokens/i.test(errMsg));
+      if (isFreeTierLimitZero) {
+        this.markCachingDisabled(model, 'free-tier storage limit=0');
+      } else {
+        console.warn(
+          `[GeminiPromptCache] caches.create failed for model=${model}: ${errMsg}. ` +
+          `Falling back to systemInstruction.`
+        );
+      }
       // Mark as failed for a short cooldown by stashing a sentinel entry.
       this.entries.set(key, {
         name: '',

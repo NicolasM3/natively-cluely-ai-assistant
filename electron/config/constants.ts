@@ -18,3 +18,7 @@ export const TRIAL_SENTINEL_KEY = '__trial__' as const;
 // If changing, also update the sibling constant in src/constants/domCapture.ts to prevent drift.
 export const DOM_CONTEXT_MAX_CHARS = 25000;
 
+/** Local Hindsight sidecar — high port to avoid 8080/8888 dev conflicts. */
+export const HINDSIGHT_DEFAULT_PORT = 19888;
+export const HINDSIGHT_DEFAULT_BASE_URL = `http://localhost:${HINDSIGHT_DEFAULT_PORT}` as const;
+

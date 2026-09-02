@@ -81,5 +81,33 @@ describe('GeminiPromptCache.getCachedOrWarmInBackground', () => {
     // Next call is still null (sentinel cooldown), still no throw.
     assert.equal(cache.getCachedOrWarmInBackground(client, 'm', BIG_PROMPT), null);
   });
+
+  test('free-tier limit=0 disables caching for the model for the session', async () => {
+    const cache = new GeminiPromptCache();
+    let createCount = 0;
+    const freeTierErr = new Error(
+      '{"error":{"code":429,"message":"TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model gemini-3.1-flash-lite: limit=0, requested=3172","status":"RESOURCE_EXHAUSTED"}}'
+    );
+    const client = {
+      caches: {
+        create: async () => {
+          createCount++;
+          throw freeTierErr;
+        },
+      },
+    };
+    assert.equal(cache.getCachedOrWarmInBackground(client, 'gemini-3.1-flash-lite', BIG_PROMPT), null);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(createCount, 1, 'first miss should attempt one create');
+    // Same model, different prompt key — must NOT retry create.
+    const altPrompt = BIG_PROMPT + 'extra';
+    assert.equal(cache.getCachedOrWarmInBackground(client, 'gemini-3.1-flash-lite', altPrompt), null);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(createCount, 1, 'model-level disable must block further creates');
+    // Different model still allowed to try once.
+    assert.equal(cache.getCachedOrWarmInBackground(client, 'gemini-3.7-flash', BIG_PROMPT), null);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(createCount, 2, 'other models should still attempt create once');
+  });
 });
 

@@ -12,6 +12,7 @@
 // 134-second hang). See raceStreamWithDeadline() below.
 
 import type { AnswerType } from './AnswerPlanner';
+import { parseOllamaSize } from './modelCapabilities';
 
 /** First-useful-token budget by difficulty (ms). Mirrors the planner targets. */
 export const LIVE_FIRST_USEFUL_BUDGET_MS = {
@@ -54,6 +55,32 @@ export const LIVE_PROVIDER_FIRST_USEFUL_COMPLEX_TIMEOUT_MS = 7000;
  * the inter-token stall guard (unchanged) still protects against a mid-stream hang.
  */
 export const LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS = 30000;
+/** 13-19B local models: heavier prefill than 7-9B but below 27B cold-load cost. */
+export const LIVE_LOCAL_MEDIUM_FIRST_USEFUL_TIMEOUT_MS = 60_000;
+/**
+ * 20B+ local models (e.g. bonsai-27b): cold weight-load + large-prompt prefill
+ * routinely exceeds 30s on a laptop. Measured 2026-09-02: MichelRosselli/bonsai-27b
+ * hit first_useful_timeout at 30s with 0 tokens while qwen3.5:9b succeeded in the
+ * same session with the same ~14KB system prompt.
+ */
+export const LIVE_LOCAL_LARGE_FIRST_USEFUL_TIMEOUT_MS = 120_000;
+
+/**
+ * Size-aware first-useful budget for a local Ollama model. Small models keep the
+ * 30s cap; 27B+ models get 120s so cold-load + prefill is not aborted to zero
+ * tokens. Healthy warm models still deliver in <1s and never reach the ceiling.
+ */
+export function localFirstUsefulTimeoutMs(modelId?: string): number {
+  const size = modelId ? parseOllamaSize(modelId) : null;
+  if (size != null && size >= 20) return LIVE_LOCAL_LARGE_FIRST_USEFUL_TIMEOUT_MS;
+  if (size != null && size >= 13) return LIVE_LOCAL_MEDIUM_FIRST_USEFUL_TIMEOUT_MS;
+  return LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS;
+}
+
+/** No-fallback ceiling for local providers — mirrors localFirstUsefulTimeoutMs. */
+export function localTotalHardTimeoutMs(modelId?: string): number {
+  return localFirstUsefulTimeoutMs(modelId);
+}
 
 /**
  * Is `text` a COMPLETE short answer, as opposed to a truncated fragment?
@@ -213,15 +240,17 @@ const COMPLEX_TYPES = new Set<AnswerType>([
  *
  * `isLocal` (Ollama / on-device): the cloud caps assume sub-second first-token; a
  * local model may need to cold-load its weights first, so a local provider gets the
- * far longer LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS regardless of answer type. The
- * caller passes llmHelper.isUsingOllama(). Defaults false (cloud) for back-compat.
+ * far longer localFirstUsefulTimeoutMs() budget regardless of answer type. Pass
+ * `localModelId` when known so 20B+ models get the extended cap. Defaults false
+ * (cloud) for back-compat.
  */
 export function firstUsefulDeadlineMs(
   answerType: AnswerType,
   isLocal: boolean = false,
   viaServerCascade: boolean = false,
+  localModelId?: string,
 ): number {
-  if (isLocal) return LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS;
+  if (isLocal) return localFirstUsefulTimeoutMs(localModelId);
   // F-301: on the natively-api route the SERVER runs a sequential cascade and
   // cuts over to the next provider at AI_TTFT_BUDGET_MS (10s). Aborting at the
   // 7s provider cap tore down the HTTP request 3s BEFORE that rescue could

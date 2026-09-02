@@ -293,10 +293,11 @@ async function fetchDeepSeekModels(apiKey: string): Promise<ProviderModel[]> {
 // ─── Gemini ──────────────────────────────────────────────────────────────────
 
 async function fetchGeminiModels(apiKey: string): Promise<ProviderModel[]> {
+    const { GEMINI_PROBE_TIMEOUT_MS } = require('../llm/geminiModels') as typeof import('../llm/geminiModels');
     const response = await axios.get(
         `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
         {
-            timeout: 15000,
+            timeout: GEMINI_PROBE_TIMEOUT_MS,
         }
     );
 

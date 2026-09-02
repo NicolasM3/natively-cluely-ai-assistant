@@ -20,6 +20,7 @@ import type {
 } from './VisionProviderFallbackChain';
 import { CredentialsManager } from '../CredentialsManager';
 import { GROQ_PRIMARY_MODEL } from '../../llm/groqModels';
+import { pickPreferredOllamaVisionModel } from '../../llm/visionCapability';
 
 export interface VisionProviderBuildInputs {
   mode: VisionMode;
@@ -172,18 +173,36 @@ function groqScout(creds: CredentialsManager, _inputs: VisionProviderBuildInputs
 
 function ollama(creds: CredentialsManager, _inputs: VisionProviderBuildInputs): VisionProviderConfig {
   const baseUrl = (creds.getAllCredentials() as any)?.ollamaBaseUrl as string | undefined;
-  const ollamaModel = (creds.getAllCredentials() as any)?.ollamaModel as string | undefined;
-  const isVisionModel = ollamaModel ? isOllamaVisionModel(ollamaModel) : false;
+  const chatModel = (creds.getAllCredentials() as any)?.ollamaModel as string | undefined;
+  const helper = readActiveLLMHelperSync();
+  const cachedVision = helper?.getOllamaVisionModelId?.() ?? null;
+  const visionModel = (cachedVision && isOllamaVisionModel(cachedVision))
+    ? cachedVision
+    : (chatModel && isOllamaVisionModel(chatModel) ? chatModel : cachedVision || chatModel);
   return {
     id: 'ollama',
     displayName: 'Ollama (local)',
-    modelId: ollamaModel,
+    modelId: visionModel,
     isLocal: true,
-    isConfigured: !!baseUrl && !!ollamaModel,
-    supportsVision: isVisionModel,
+    isConfigured: !!baseUrl && !!chatModel,
+    supportsVision: !!visionModel && isOllamaVisionModel(visionModel),
     scopeAllowsScreenshots: true,
     hint: 'ollama',
-    invoke: async (p) => callOllamaVision(baseUrl!, ollamaModel!, p),
+    invoke: async (p) => {
+      let model = visionModel;
+      const live = await getActiveLLMHelper();
+      if (!model || !isOllamaVisionModel(model)) {
+        const refreshed = await live?.refreshOllamaVisionModel?.();
+        if (refreshed) model = refreshed;
+      }
+      if (!model || !isOllamaVisionModel(model)) {
+        const installed = await live?.getOllamaModels?.() ?? [];
+        const preferred = pickPreferredOllamaVisionModel(installed);
+        if (preferred) model = preferred;
+      }
+      if (!baseUrl || !model) throw new Error('Ollama vision not configured');
+      return callOllamaVision(baseUrl, model, p);
+    },
   };
 }
 
@@ -285,7 +304,7 @@ function isLocalOnlyCustomProvider(provider: any | undefined | null): boolean {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-const OLLAMA_VISION_MODELS_RE = /(llava|bakllava|moondream|llama3\.2-vision|llama-3\.2-vision|gemma3|minicpm-v|qwen2\.5-vl|qwen2-vl|pixtral)/i;
+const OLLAMA_VISION_MODELS_RE = /(llava|bakllava|moondream|llama3\.2-vision|llama-3\.2-vision|gemma3|minicpm-v|qwen3-vl|qwen2\.5-vl|qwen2-vl|pixtral)/i;
 export function isOllamaVisionModel(modelId: string): boolean {
   return OLLAMA_VISION_MODELS_RE.test(modelId);
 }
@@ -372,4 +391,14 @@ async function getActiveLLMHelper(): Promise<any | null> {
     }
   }
   return null;
+}
+
+function readActiveLLMHelperSync(): any | null {
+  const g = global as any;
+  if (typeof g.__nativelyGetLLMHelper !== 'function') return null;
+  try {
+    return g.__nativelyGetLLMHelper();
+  } catch {
+    return null;
+  }
 }
