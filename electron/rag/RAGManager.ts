@@ -4,8 +4,8 @@
 
 import Database from 'better-sqlite3';
 import { LLMHelper } from '../LLMHelper';
-import { preprocessTranscript, RawSegment } from './TranscriptPreprocessor';
-import { chunkTranscript } from './SemanticChunker';
+import { preprocessTranscript, RawSegment, estimateTokens } from './TranscriptPreprocessor';
+import { chunkTranscript, Chunk } from './SemanticChunker';
 import { VectorStore } from './VectorStore';
 import { EmbeddingPipeline } from './EmbeddingPipeline';
 import { RAGRetriever } from './RAGRetriever';
@@ -236,6 +236,59 @@ export class RAGManager {
         }
 
         return { chunkCount: chunks.length };
+    }
+
+    /**
+     * Index a static text corpus (e.g. local profile folder) under a dedicated meeting_id.
+     * Replaces any prior chunks for that id and queues background embedding.
+     */
+    async indexTextCorpus(
+        meetingId: string,
+        items: Array<{ label: string; text: string }>,
+        opts?: { title?: string },
+    ): Promise<{ chunkCount: number }> {
+        this.deleteMeetingData(meetingId);
+
+        const title = opts?.title ?? 'Text Corpus';
+        try {
+            this.db.prepare(`
+                INSERT OR IGNORE INTO meetings (id, title, start_time, duration_ms, summary_json, created_at, source, is_processed)
+                VALUES (?, ?, ?, 0, '{}', ?, 'manual', 0)
+            `).run(meetingId, title, Date.now(), new Date().toISOString());
+        } catch (e) {
+            console.warn(`[RAGManager] Failed to create meeting row for corpus ${meetingId}:`, e);
+        }
+
+        const chunks: Chunk[] = items
+            .filter((item) => item.text.trim())
+            .map((item, chunkIndex) => ({
+                meetingId,
+                chunkIndex,
+                speaker: item.label,
+                startMs: 0,
+                endMs: 0,
+                text: item.text.trim(),
+                tokenCount: estimateTokens(item.text.trim()),
+            }));
+
+        if (chunks.length === 0) {
+            console.log(`[RAGManager] No chunks to save for corpus ${meetingId}`);
+            return { chunkCount: 0 };
+        }
+
+        this.vectorStore.saveChunks(chunks);
+
+        if (this.embeddingPipeline.isReady()) {
+            await this.embeddingPipeline.queueMeeting(meetingId);
+        } else {
+            console.log(`[RAGManager] Embeddings not ready, corpus chunks saved without embeddings (${meetingId})`);
+        }
+
+        return { chunkCount: chunks.length };
+    }
+
+    hasCorpusEmbeddings(meetingId: string): boolean {
+        return this.vectorStore.hasEmbeddings(meetingId);
     }
 
     /**

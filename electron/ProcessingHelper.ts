@@ -155,6 +155,13 @@ export class ProcessingHelper {
     if (aiResponseLanguage) {
       this.llmHelper.setAiResponseLanguage(aiResponseLanguage);
     }
+
+    // Seed Ollama fallback config from env even when Gemini is the default model.
+    const ollamaUrl = process.env.OLLAMA_URL;
+    const ollamaModel = process.env.OLLAMA_MODEL;
+    if (ollamaUrl || ollamaModel) {
+      this.llmHelper.seedOllamaFallbackConfig(ollamaUrl, ollamaModel);
+    }
   }
 
   public async processScreenshots(): Promise<void> {

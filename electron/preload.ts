@@ -830,6 +830,35 @@ interface ElectronAPI {
     filePath?: string;
     error?: string;
   }>;
+  profileSelectFolder: () => Promise<{
+    success?: boolean;
+    cancelled?: boolean;
+    folderPath?: string;
+    error?: string;
+  }>;
+  profileSyncFolder: (folderPath?: string) => Promise<{
+    success: boolean;
+    error?: string;
+    status?: {
+      folderPath: string | null;
+      fileCount: number;
+      lastSyncedAt: string | null;
+      files: string[];
+      hasProfile: boolean;
+      profileName?: string;
+      error?: string;
+    };
+    profileFactsReady?: boolean;
+  }>;
+  profileGetFolderStatus: () => Promise<{
+    folderPath: string | null;
+    fileCount: number;
+    lastSyncedAt: string | null;
+    files: string[];
+    hasProfile: boolean;
+    profileName?: string;
+    error?: string;
+  }>;
 
   // JD & Research API
   profileUploadJD: (filePath: string) => Promise<{ success: boolean; error?: string }>;
@@ -2525,6 +2554,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   profileGetProfile: () => ipcRenderer.invoke('profile:get-profile'),
   profileGetCompanyDossier: () => ipcRenderer.invoke('profile:get-company-dossier'),
   profileSelectFile: () => ipcRenderer.invoke('profile:select-file'),
+  profileSelectFolder: () => ipcRenderer.invoke('profile:select-folder'),
+  profileSyncFolder: (folderPath?: string) => ipcRenderer.invoke('profile:sync-folder', folderPath),
+  profileGetFolderStatus: () => ipcRenderer.invoke('profile:get-folder-status'),
 
   // JD & Research API
   profileUploadJD: (filePath: string) => ipcRenderer.invoke('profile:upload-jd', filePath),

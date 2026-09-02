@@ -160,7 +160,13 @@ export interface ManualProfileRouteLog {
   promptContainsProfileContext?: boolean;
 }
 
-const normalize = (question: string): string => question.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+const normalize = (question: string): string => question
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
 const hasAny = (text: string, patterns: RegExp[]): boolean => patterns.some((pattern) => pattern.test(text));
 const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value.filter(Boolean) : [];
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
@@ -286,6 +292,10 @@ const SKILL_PATTERNS = [
   // "best at" / "most skilled in" as the same ask.
   /\b(programming|coding)?\s*languages?\b[\w\s]{0,20}\b(strongest|best|most\s+(skilled|proficient|comfortable|experienced))\b/i,
   /\b(strongest|best|most\s+(skilled|proficient|comfortable|experienced))\b[\w\s]{0,20}\b(programming|coding)?\s*languages?\b/i,
+  // Portuguese skill/technology probes.
+  /\b(?:sua|seu|minha|meu)\s+(?:principais?\s+)?(?:habilidades?|competências?|competencias?)\b/i,
+  /\b(?:qual|quais)\s+(?:tecnolog|linguagem|stack|habilidad)/i,
+  /\b(?:tecnolog|linguagem|stack).*\b(?:trabalhou|trabalha|usa|usou|conhece)\b/i,
 ];
 
 const EDUCATION_PATTERNS = [
@@ -295,6 +305,12 @@ const EDUCATION_PATTERNS = [
   /\bschool\b/,
   /\buniversity\b/,
   /\bwhat(?:'s| is)\s+(your|my)\s+educational?\s+background\b/,
+  /\b(?:sua|seu|minha|meu)\s+formação\b/i,
+  /\b(?:sua|seu|minha|meu)\s+formacao\b/i,
+  /\bqual\s+(?:é\s+)?(?:a\s+)?(?:sua|seu)\s+formação\b/i,
+  /\bqual\s+(?:e\s+)?(?:a\s+)?(?:sua|seu)\s+formacao\b/i,
+  /\bquais\s+são\s+(?:as\s+)?(?:suas|minhas)\s+formações\b/i,
+  /\bquais\s+sao\s+(?:as\s+)?(?:suas|minhas)\s+formacoes\b/i,
 ];
 
 const ROLE_PATTERNS = [
@@ -1454,7 +1470,9 @@ export const selectManualProfileEvidence = ({
     });
   }
 
-  const educationFactAsk = /\b(gpa|cgpa|grade point|score|college|school|university|degree|education|educational|study|studied|graduate)\b/i.test(q);
+  const educationFactAsk = /\b(gpa|cgpa|grade point|score|college|school|university|degree|education|educational|study|studied|graduate|formação|formacao|formações|formacoes|graduação|graduacao|faculdade)\b/i.test(q)
+    || /\b(sua|seu|minha|meu)\s+formac/.test(q)
+    || /\bquais\s+sao\s+(as\s+)?(suas|minhas)\s+formac/.test(q);
   if ((hasAny(q, EDUCATION_PATTERNS) || educationFactAsk) && !qualified) {
     const education = profileEducation(profile).slice(0, 3);
     if (education.length === 0) return null;

@@ -1316,7 +1316,7 @@ const followUpHasProjectContext = (input: PlanAnswerInput, rawQuestion: string):
 // type when it is clearly DIRECTED AT THE CANDIDATE (second/first person about
 // them) in a manual/interview context. Everything else stays unknown_answer
 // (profileContextPolicy 'allowed' — no forced profile, no leak).
-const SELF_REFERENTIAL_RE = /\b(you|your|yours|yourself|u|ur)\b/i;          // interviewer→candidate
+const SELF_REFERENTIAL_RE = /\b(you|your|yours|yourself|u|ur|sua|seu|suas|seus|você|voce)\b/i;          // interviewer→candidate
 const FIRST_PERSON_RE = /\b(i|i'?m|i'?ve|my|me|mine|myself)\b/i;            // user→self ("what should I say")
 // "What should I say/answer if they ask X" — indirect recruiter coaching. We
 // route by the EMBEDDED ask so the right profile context is selected.
@@ -1336,10 +1336,12 @@ const classifyUnmatchedFallback = (text: string, input: PlanAnswerInput): Answer
   // NOTE: bare "data" is deliberately EXCLUDED (it appears in non-candidate
   // analyst chatter — "send me the data", "the data pipeline is down"); only the
   // role-framed "data analyst"/"analytics" qualify (code-review 2026-06-05, MED).
-  const CANDIDATE_ATTRIBUTE_RE = /\b(experience|background|skill|skills|project|projects|role|job|fit|hire|qualif|strength|weakness|study|studied|education|degree|college|university|intern|work|built|build|develop|languages?|tools?|tech|stack|rate|level|expertise|proficien|company|companies|career|resume|cv|profile|data analyst|analytics)\b/i;
+  const CANDIDATE_ATTRIBUTE_RE = /\b(experience|background|skill|skills|project|projects|role|job|fit|hire|qualif|strength|weakness|study|studied|education|degree|college|university|intern|work|built|build|develop|languages?|tools?|tech|stack|rate|level|expertise|proficien|company|companies|career|resume|cv|profile|data analyst|analytics|formação|formacao|formações|formacoes|tecnolog|habilidad|competência|competencia|experiência|experiencia|graduação|graduacao|currículo|curriculo|trajetória|trajetoria)\b/i;
   const candidateDirected =
     (SELF_REFERENTIAL_RE.test(text) && CANDIDATE_ATTRIBUTE_RE.test(text))
     || (FIRST_PERSON_RE.test(text) && CANDIDATE_ATTRIBUTE_RE.test(text))
+    || (/\b(qual|quais)\b/i.test(text) && CANDIDATE_ATTRIBUTE_RE.test(text))
+    || (/\b(já|ja)\s+(trabalhou|trabalha|estudou|atuou)\b/i.test(text) && CANDIDATE_ATTRIBUTE_RE.test(text))
     || INDIRECT_COACHING_RE.test(text);
   if (!candidateDirected) {
     // Not clearly about the candidate — keep neutral (no forced profile).
@@ -1352,8 +1354,9 @@ const classifyUnmatchedFallback = (text: string, input: PlanAnswerInput): Answer
   if (/\b(project|built|build|developed|natively|app|system|architecture|stack|backend|database)\b/i.test(text)) return 'project_answer';
   if (/\b(rate|out of (10|ten)|level|scale|score)\b/i.test(text)) return 'skill_experience_answer';
   if (/\b(strength|weakness|example|story|time|teamwork|leadership|conflict|failure|pressure|ownership)\b/i.test(text)) return 'behavioral_interview_answer';
-  if (/\b(experience|background|intern|internship|worked|company|role|did you do)\b/i.test(text)) return 'experience_answer';
-  if (/\b(skill|skills|language|tool|tech|technolog|good at)\b/i.test(text)) return 'skills_answer';
+  if (/\b(experience|background|intern|internship|worked|company|role|did you do|trabalhou|trabalha|experiência|experiencia)\b/i.test(text)) return 'experience_answer';
+  if (/\b(skill|skills|language|tool|tech|technolog|good at|tecnolog|habilidad|linguagem)\b/i.test(text)) return 'skills_answer';
+  if (/\b(formação|formacao|graduação|graduacao|education|degree|study|studied)\b/i.test(text)) return 'profile_fact_answer';
   return 'profile_fact_answer';
 };
 

@@ -76,6 +76,8 @@ export interface AppSettings {
     // HindsightManager.hindsightMemoryExplicitlyOff()).
     hindsightMemoryEnabledExplicit?: boolean;
     knowledgeMode?: boolean;
+    /** Local profile folder synced by LocalProfileFolderService (no premium module required). */
+    localProfileFolderPath?: string;
     phoneMirrorEnabled?: boolean;
     phoneMirrorExposeOnLan?: boolean;
     // External optional provider. Default false: do not spawn Ollama unless

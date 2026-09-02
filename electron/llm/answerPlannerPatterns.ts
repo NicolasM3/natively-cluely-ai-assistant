@@ -571,6 +571,10 @@ export const SKILLS_PATTERNS = [
   /\b(your|my) (area of |main |core )?(expertise|specialit|specialisation|specialization|strong suit|forte)\b/i,
   /\bwhat(?:'s| is) (your|my) strongest (skill|area|tech|language|domain)\b/i,
   /\bwhere do (you|i) special/i,
+  // Portuguese skill/technology probes.
+  /\b(?:qual|quais)\s+(?:tecnolog|linguagem|stack|habilidad)/i,
+  /\b(?:tecnolog|linguagem|stack).*\b(?:trabalhou|trabalha|usa|usou|conhece)\b/i,
+  /\b(?:já|ja)\s+trabalhou\b/i,
 ];
 
 export // Spec Case F exception: "have you used / worked with / do you know <tech>" is a
@@ -873,6 +877,11 @@ const PROFILE_FACT_PATTERNS = [
   /\bhow many years (of )?(experience|exp)\b|\bwhat(?:'s| is) (your|my) (years of )?experience\b/i,
   /\bwhat (was|is) (your|my) (last|current|previous) (company|employer|job|role|title)\b/i,
   /\bwhere (are|r) (you|u) (based|located)\b|\bwhat(?:'s| is) (your|my) availability\b/i,
+  // Portuguese profile fact probes (formação, graduação, localização).
+  /\bqual\s+(?:é\s+)?(?:a\s+)?(?:sua|seu|minha|meu)\s+formação\b/i,
+  /\b(?:sua|seu|minha|meu)\s+formação\b/i,
+  /\bquais\s+são\s+(?:as\s+)?(?:suas|minhas)\s+formações\b/i,
+  /\b(?:onde|em\s+que)\s+(?:você|voce|tu)\s+(?:estudou|formou|se\s+formou)\b/i,
 ];
 
 export // Sales: pricing/product/competitor/objection questions (spec Case G). Uses sales

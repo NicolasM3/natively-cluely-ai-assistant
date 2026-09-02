@@ -44,7 +44,7 @@
 //     in-GUI latency (no renderer paint, no IPC marshalling).
 //   • E–K services are DETERMINISTIC (no LLM, no network) so their behavior in this
 //     harness is byte-for-byte what the GUI handler would produce given the same input.
-//   • Hindsight (D10) requires a server on :8888. When DOWN, LongTermMemoryService is Noop
+//   • Hindsight (D10) requires a server on :19888. When DOWN, LongTermMemoryService is Noop
 //     → recall []. We record hindsight_used=false + the honest reason and PASS only on the
 //     correct DEGRADED behavior (empty, no leak, no break) — never on a faked recall.
 //
@@ -169,9 +169,9 @@ before(async () => {
   }
 
   try {
-    const res = await fetch('http://localhost:8888/health', { signal: AbortSignal.timeout(2000) }).catch(() => null);
+    const res = await fetch('http://localhost:19888/health', { signal: AbortSignal.timeout(2000) }).catch(() => null);
     hindsightServerUp = !!(res && res.ok);
-    if (hindsightServerUp && !process.env.HINDSIGHT_BASE_URL) process.env.HINDSIGHT_BASE_URL = 'http://localhost:8888';
+    if (hindsightServerUp && !process.env.HINDSIGHT_BASE_URL) process.env.HINDSIGHT_BASE_URL = 'http://localhost:19888';
   } catch { hindsightServerUp = false; }
 });
 

@@ -1,7 +1,13 @@
 // ============================================================================
+// TLS BOOT GATE — see electron/tlsGate.ts. MUST be first: disables Node TLS
+// cert validation before any HTTPS client (axios, @google/genai) is loaded.
+// ============================================================================
+import './tlsGate';
+
+// ============================================================================
 // NATIVE-ARCH BOOT GATE — see electron/nativeArchGate.ts.
 //
-// This MUST be the first import in this file. esbuild hoists all imports
+// This MUST be the second import in this file. esbuild hoists all imports
 // to the top of the bundled init_main() function in source order; by
 // placing the gate first, we ensure init_nativeArchGate() runs before
 // init_DatabaseManager() (which is what loads better-sqlite3).
@@ -2724,9 +2730,38 @@ export class AppState {
         }
 
         console.log('[AppState] KnowledgeOrchestrator initialized');
+      } else {
+        const llmHelper = this.processingHelper.getLLMHelper();
+        const { LocalKnowledgeOrchestrator } = require('./services/localProfile/LocalKnowledgeOrchestrator') as typeof import('./services/localProfile/LocalKnowledgeOrchestrator');
+        this.knowledgeOrchestrator = new LocalKnowledgeOrchestrator();
+        if (typeof this.knowledgeOrchestrator.setRAGManager === 'function') {
+          this.knowledgeOrchestrator.setRAGManager(this.ragManager);
+        }
+        void this.knowledgeOrchestrator.initialize().then(() => {
+          llmHelper.setKnowledgeOrchestrator(this.knowledgeOrchestrator);
+          console.log('[AppState] LocalKnowledgeOrchestrator initialized (profile folder mode)');
+        }).catch((localErr: unknown) => {
+          console.error('[AppState] LocalKnowledgeOrchestrator initialize failed:', localErr);
+        });
       }
     } catch (error) {
       console.error('[AppState] Failed to initialize KnowledgeOrchestrator:', error);
+      try {
+        const llmHelper = this.processingHelper.getLLMHelper();
+        const { LocalKnowledgeOrchestrator } = require('./services/localProfile/LocalKnowledgeOrchestrator') as typeof import('./services/localProfile/LocalKnowledgeOrchestrator');
+        this.knowledgeOrchestrator = new LocalKnowledgeOrchestrator();
+        if (typeof this.knowledgeOrchestrator.setRAGManager === 'function') {
+          this.knowledgeOrchestrator.setRAGManager(this.ragManager);
+        }
+        void this.knowledgeOrchestrator.initialize().then(() => {
+          llmHelper.setKnowledgeOrchestrator(this.knowledgeOrchestrator);
+          console.log('[AppState] LocalKnowledgeOrchestrator initialized after premium failure');
+        }).catch((fallbackErr: unknown) => {
+          console.error('[AppState] Failed to initialize LocalKnowledgeOrchestrator:', fallbackErr);
+        });
+      } catch (fallbackErr) {
+        console.error('[AppState] Failed to initialize LocalKnowledgeOrchestrator:', fallbackErr);
+      }
     }
   }
 

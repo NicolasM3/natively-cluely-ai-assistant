@@ -17,7 +17,7 @@ import {
     validateProfileOutput, validateProfileEvidence, buildProfileRepairInstruction, sanitizeCandidateAnswer, CANDIDATE_VOICE_ANSWER_TYPES,
     detectAssistantVoiceMisfire, ASSISTANT_VOICE_ANSWER_TYPES,
     raceStreamWithDeadline, LIVE_INTER_TOKEN_STALL_MS, LIVE_TOTAL_HARD_TIMEOUT_MS,
-    LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS, LIVE_LOCAL_TOTAL_HARD_TIMEOUT_MS, isLeakedSchemaStub, isLeakedJsonEnvelope, extractAnswerFromJsonEnvelope,
+    LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS, isLeakedSchemaStub, isLeakedJsonEnvelope, extractAnswerFromJsonEnvelope,
     isProviderTransportError, isLeakedInternalTagBlock, isLeakedAnswerArtifact,
     cleanAnswerArtifacts, compressToSpeakable, SCAFFOLD_LABEL_RE, BOLD_PSEUDO_HEADER_RE,
     buildProfileJitPrompt, decideSessionWritePolicy,
@@ -3271,7 +3271,7 @@ export class IntelligenceEngine extends EventEmitter {
                 ? (this.llmHelper as any).isUsingOllama()
                 : false;
             const firstUsefulDeadline = usingLocalLlm
-                ? LIVE_LOCAL_TOTAL_HARD_TIMEOUT_MS
+                ? this.llmHelper.getLocalFirstUsefulDeadlineMs()
                 : LIVE_TOTAL_HARD_TIMEOUT_MS;
             let liveDeadlineFired = false;
 
@@ -3301,7 +3301,9 @@ export class IntelligenceEngine extends EventEmitter {
                 // arrival), NOT the gate's emit threshold — otherwise a coding
                 // answer buffering in the CodingStreamGate could trip the strict
                 // first-useful timeout while the provider is healthy (code-review LOW).
-                isUsefulYet: () => emittedStreamingToken || fullAnswer.trim().length >= STREAMING_SAFE_PREFIX_CHARS,
+                isUsefulYet: () => emittedStreamingToken
+                    || fullAnswer.trim().length >= STREAMING_SAFE_PREFIX_CHARS
+                    || isCompleteShortAnswer(fullAnswer),
                 shouldAbort: () => {
                     if (whatToAnswerCancellationToken.signal.aborted || isWtaSuperseded()) {
                         streamAborted = true;
@@ -3342,7 +3344,8 @@ export class IntelligenceEngine extends EventEmitter {
                             }
                         }
                         if (scaffoldStreamHold) return;
-                        if (streamingTokenBuffer.length >= STREAMING_SAFE_PREFIX_CHARS
+                        const shouldFlushCompleteShort = isCompleteShortAnswer(streamingTokenBuffer);
+                        if ((streamingTokenBuffer.length >= STREAMING_SAFE_PREFIX_CHARS || shouldFlushCompleteShort)
                             && !IntelligenceEngine.isNonAnswerSentinel(streamingTokenBuffer)) {
                             // Prompt System v2: a misfired "[[NO_ACTION]] real
                             // text…" keeps its real text but the sentinel token
@@ -3847,7 +3850,7 @@ export class IntelligenceEngine extends EventEmitter {
                                 [],
                                 whatToAnswerCancellationToken.signal,
                             ) as AsyncGenerator<string>,
-                            firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                            firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? this.llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                             interTokenStallMs: LIVE_INTER_TOKEN_STALL_MS,
                             isUsefulYet: () => scaffoldRepaired.length >= 5,
                             shouldAbort: () => scaffoldRepaired.length > 1800
@@ -4149,7 +4152,7 @@ export class IntelligenceEngine extends EventEmitter {
                                             ['reference_files'],
                                             whatToAnswerCancellationToken.signal,
                                         ) as AsyncGenerator<string>,
-                                        firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                                        firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? this.llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                                         interTokenStallMs: LIVE_INTER_TOKEN_STALL_MS,
                                         isUsefulYet: () => repaired.trim().length >= 5,
                                         shouldAbort: () => repaired.length > 1800
@@ -4368,7 +4371,7 @@ export class IntelligenceEngine extends EventEmitter {
                                     [],
                                     whatToAnswerCancellationToken.signal,
                                 ) as AsyncGenerator<string>,
-                                firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                                firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? this.llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                                 isUsefulYet: () => repaired.length >= 5,
                                 shouldAbort: () => repaired.length > 1200
                                     || whatToAnswerCancellationToken.signal.aborted
@@ -4691,7 +4694,7 @@ export class IntelligenceEngine extends EventEmitter {
                                     [],
                                     whatToAnswerCancellationToken.signal,
                                 ) as AsyncGenerator<string>,
-                                firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                                firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? this.llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                                 isUsefulYet: () => clauseAddition.length >= 5,
                                 shouldAbort: () => clauseAddition.length > 900
                                     || whatToAnswerCancellationToken.signal.aborted
@@ -4905,7 +4908,7 @@ export class IntelligenceEngine extends EventEmitter {
                                         [],
                                         whatToAnswerCancellationToken.signal,
                                     ) as AsyncGenerator<string>,
-                                    firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                                    firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? this.llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                                     isUsefulYet: () => repaired.length >= 5,
                                     shouldAbort: () => repaired.length > 1200
                                         || whatToAnswerCancellationToken.signal.aborted
@@ -5299,7 +5302,7 @@ export class IntelligenceEngine extends EventEmitter {
                             [],
                             abortSignal,
                         ) as AsyncGenerator<string>,
-                        firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? LIVE_LOCAL_FIRST_USEFUL_TIMEOUT_MS : 7000,
+                        firstUsefulDeadlineMs: this.llmHelper.isUsingOllama() ? this.llmHelper.getLocalFirstUsefulDeadlineMs() : 7000,
                         isUsefulYet: () => fixed.length >= 5,
                         shouldAbort: () => fixed.length > 1200 || superseded(),
                         onToken: (tok: string) => { fixed += tok; },
