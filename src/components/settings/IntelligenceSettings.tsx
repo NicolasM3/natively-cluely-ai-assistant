@@ -2,6 +2,7 @@ import { AlertTriangle, Check, ChevronDown, Copy, Cpu, Loader2, Wifi, WifiOff } 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../../i18n';
+import { HINDSIGHT_DEFAULT_BASE_URL, HINDSIGHT_DEFAULT_PORT } from '../../../electron/config/constants';
 import { Disclosure, DisclosureChevron } from '../ui/AccordionSection';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SettingsToggle } from './SettingsToggle';
@@ -788,7 +789,7 @@ export const IntelligenceSettings: React.FC = () => {
                 {t('From the Natively project folder, run the bundled launcher and keep it running while you use the app:')}
                 <CopyBlock text="bash scripts/hindsight-start.sh" />
                 <span className="mt-1.5 block">
-                  {t('Starts the embedded memory server on port 8888.')}
+                  {t('Starts the embedded memory server on port')} {HINDSIGHT_DEFAULT_PORT}.
                 </span>
                 <span className="mt-1 block">
                   <span className="font-medium text-text-primary">{t('If you start it from inside Natively')}</span> {t('(autoStart toggle ON below), your AI provider key from the AI Providers screen is forwarded to the server automatically — nothing else to do.')}
@@ -865,10 +866,10 @@ export const IntelligenceSettings: React.FC = () => {
                 type="text"
                 value={baseUrl}
                 onChange={(e) => { setBaseUrl(e.target.value); scheduleAutoSave(); }}
-                placeholder="http://localhost:8888"
+                placeholder={HINDSIGHT_DEFAULT_BASE_URL}
                 className="w-full rounded-lg border border-border-subtle bg-bg-input px-3 py-2 text-xs text-text-primary transition-colors focus:outline-none focus:border-accent-primary"
               />
-              {cfg?.synthetic && baseUrl === 'http://localhost:8888' && (
+              {cfg?.synthetic && baseUrl === HINDSIGHT_DEFAULT_BASE_URL && (
                 <span className="mt-1 block text-[11px] text-text-tertiary">
                   {t('Using local default. Type your Cloud URL (e.g.')} <span className="font-mono">https://api.hindsight.vectorize.io</span>{t(') to switch to Hindsight Cloud.')}
                 </span>

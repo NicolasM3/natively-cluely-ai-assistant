@@ -120,7 +120,7 @@ function loadModule(entryTs) {
   return import(pathToFileURL(entryTs).href);
 }
 
-let ALL_STAGES; // [...STAGES, QUIET_WINDOW_STAGE] — matches App.tsx's start() call
+let ALL_STAGES; // matches App.tsx's start() call
 
 before(async () => {
   installPolyfills();
@@ -128,14 +128,7 @@ before(async () => {
   const stagesMod = await loadModule(STAGES_TS);
   OnboardingOrchestrator = orchMod.OnboardingOrchestrator;
   STAGES = stagesMod.STAGES;
-  // Production starts the orchestrator with the quiet_window stage appended
-  // (App.tsx: orch.start([...STAGES, QUIET_WINDOW_STAGE])). quiet_window is
-  // inserted into the queue when trial_promo completes, so its config must be
-  // registered or that id would sit unresolved in the queue. Include it here so
-  // the drain-termination guard reflects real startup.
-  ALL_STAGES = stagesMod.QUIET_WINDOW_STAGE
-    ? [...STAGES, stagesMod.QUIET_WINDOW_STAGE]
-    : STAGES;
+  ALL_STAGES = STAGES;
   assert.ok(OnboardingOrchestrator, 'OnboardingOrchestrator export loaded');
   assert.ok(Array.isArray(STAGES) && STAGES.length > 0, 'STAGES catalog loaded');
 });

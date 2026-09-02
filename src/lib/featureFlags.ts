@@ -12,5 +12,5 @@
 
 export const FEATURES = {
   /** Set to false to completely hide premium UI elements */
-  PREMIUM_ENABLED: true,
+  PREMIUM_ENABLED: false,
 } as const;

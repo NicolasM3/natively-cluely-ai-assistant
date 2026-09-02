@@ -1627,10 +1627,10 @@ export const HelpSettings: React.FC<{ onNavigate?: (tab: string) => void }> = ({
 
                         <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
                             <h4 className="text-[13px] font-semibold text-indigo-400 flex items-center gap-2 mb-1">
-                                <Star size={14} /> Pro Feature
+                                <Star size={14} /> Modes Manager
                             </h4>
                             <p className="text-[11px] text-text-secondary leading-relaxed mb-0">
-                                Modes are locked behind Natively Pro. Free and trial users see only the General mode. Activate a license via <strong>Settings → Natively API</strong> to unlock all seven modes.
+                                Modes tailor how Natively routes context — coding interviews, negotiations, lectures, and more. Open the Modes Manager from the launcher header to switch or customize modes.
                             </p>
                         </div>
                     </div>
@@ -1880,8 +1880,8 @@ hindsight-api`}
                                 </p>
                                 <ol className="text-[11px] text-text-secondary space-y-1 list-decimal pl-4">
                                     <li>Install the embedded server package (Python 3.11+): <code className="bg-bg-elevated px-1 font-mono text-[10px]">pip install hindsight-all</code> (Intel Macs: <code className="bg-bg-elevated px-1 font-mono text-[10px]">hindsight-all-slim</code>).</li>
-                                    <li>From the Natively project folder, run the bundled launcher: <code className="bg-bg-elevated px-1 font-mono text-[10px]">bash scripts/hindsight-start.sh</code>. It starts the embedded memory server (bundled Postgres + pgvector, no Docker) on port 8888 and wires your AI provider chain + fallback automatically.</li>
-                                    <li>Set Natively Base URL to <code className="bg-bg-elevated px-1 font-mono text-[10px]">http://localhost:8888</code> and toggle on memory.</li>
+                                    <li>From the Natively project folder, run the bundled launcher: <code className="bg-bg-elevated px-1 font-mono text-[10px]">bash scripts/hindsight-start.sh</code>. It starts the embedded memory server (bundled Postgres + pgvector, no Docker) on port 19888 and wires your AI provider chain + fallback automatically.</li>
+                                    <li>Set Natively Base URL to <code className="bg-bg-elevated px-1 font-mono text-[10px]">http://localhost:19888</code> and toggle on memory.</li>
                                 </ol>
                             </div>
                         </div>

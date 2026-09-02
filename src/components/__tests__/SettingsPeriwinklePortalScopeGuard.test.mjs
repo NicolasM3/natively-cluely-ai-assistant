@@ -42,12 +42,8 @@ const GUARDED_FILES = [
   'src/components/settings/AIProvidersSettings.tsx',
   'src/components/settings/ProviderCard.tsx',
   'src/components/settings/HelpSettings.tsx',
-  'src/components/settings/HowItWorksRefund.tsx',
   'src/components/settings/IntelligenceSettings.tsx',
-  'src/components/settings/NativelyApiSettings.tsx',
-  'src/components/settings/NativelyProSettings.tsx',
   'src/components/settings/PhoneMirrorSettings.tsx',
-  'src/components/settings/PlansSettings.tsx',
   'src/components/settings/Sidebar.tsx', // dead code (unused, zero imports) — covered in case it's ever revived
   'src/components/settings/SkillsSettings.tsx',
   'src/components/settings/ModesSettings.tsx',

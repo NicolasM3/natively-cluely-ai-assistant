@@ -241,6 +241,7 @@ import {
   shouldDedupeOverlayAction,
 } from '../lib/overlayActionDedup.mjs';
 import { shouldDedupeManualSubmit } from '../lib/overlaySubmitDedup.mjs';
+import { looksLikeProfileQuestion } from '../lib/profileQuestionHeuristic.mjs';
 import { decideScrollInterrupt } from '../lib/scrollInterruptDecision.mjs';
 import { mergeTranscriptChunks } from '../lib/transcriptMerge.mjs';
 import {
@@ -6260,9 +6261,11 @@ Instructions:
 2. Provide a direct, helpful answer.
 3. Be concise.`;
           } else {
-            const ragResult = await window.electronAPI.ragQueryLive?.(question);
-            if (ragResult?.success) {
-              return;
+            if (!looksLikeProfileQuestion(question)) {
+              const ragResult = await window.electronAPI.ragQueryLive?.(question);
+              if (ragResult?.success) {
+                return;
+              }
             }
 
             prompt = `You are a real-time interview assistant. The user just repeated or paraphrased a question from their interviewer.
@@ -6446,8 +6449,11 @@ Provide only the answer, nothing else.`;
     pinAnswerPanel();
 
     try {
-      // JIT RAG pre-flight: try to use indexed meeting context first
-      if (currentAttachments.length === 0) {
+      // JIT RAG pre-flight: try to use indexed meeting context first.
+      // Profile/CV questions must NOT take this path — live RAG searches the
+      // meeting transcript, bypasses gemini-chat-stream (no profile JIT), and
+      // often returns nothing useful for "Qual sua formação?" style asks.
+      if (currentAttachments.length === 0 && !looksLikeProfileQuestion(userText)) {
         const ragResult = await window.electronAPI.ragQueryLive?.(userText || '');
         if (ragResult?.success) {
           // JIT RAG handled it — response streamed via rag:stream-chunk events

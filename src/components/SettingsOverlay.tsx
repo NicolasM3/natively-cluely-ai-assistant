@@ -10,12 +10,10 @@ import {
     Star, AlertCircle, Gift, Smartphone, Cpu, Shield, Code2, Headphones
 } from 'lucide-react';
 import { AutoAnswerIcon } from './AutoAnswerIcon';
-import { HiCreditCard } from 'react-icons/hi2';
 import { analytics } from '../lib/analytics/analytics.service';
 import { AboutSection } from './AboutSection';
 import { HelpSettings } from './settings/HelpSettings';
 import { AIProvidersSettings } from './settings/AIProvidersSettings';
-import { PlansSettings } from './settings/PlansSettings';
 import { PhoneMirrorSettings } from './settings/PhoneMirrorSettings';
 import { IntelligenceSettings } from './settings/IntelligenceSettings';
 import { SkillsSettings } from './settings/SkillsSettings';
@@ -36,7 +34,6 @@ import {
 import { getMeetingInterfaceTheme, setMeetingInterfaceTheme, type MeetingInterfaceTheme } from '../lib/meetingInterfaceTheme';
 import { KeyRecorder } from './ui/KeyRecorder';
 import { Disclosure, DisclosureChevron } from './ui/AccordionSection';
-import { ProfileVisualizer, PremiumUpgradeModal } from '../premium';
 import GlassEffectLayer from './ui/GlassEffectLayer';
 import { BrandMark, BrandMonogram } from './ui/BrandMark';
 import icon from './icon.png';
@@ -407,7 +404,6 @@ const ProviderSelect: React.FC<ProviderSelectProps> = ({ value, options, onChang
    direction rather than guessing. Keep in sync with the <nav> below. */
 const SETTINGS_NAV_ORDER = [
     'general',
-    'plans',
     'ai-providers',
     'skills',
     'calendar',
@@ -423,8 +419,6 @@ interface SettingsOverlayProps {
     isOpen: boolean;
     onClose: () => void;
     initialTab?: string;
-    initialIsPremium?: boolean | null;
-    initialHasNativelyKey?: boolean;
 }
 
 /**
@@ -453,8 +447,6 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     isOpen,
     onClose,
     initialTab = 'general',
-    initialIsPremium = null,
-    initialHasNativelyKey = false,
 }) => {
     const isLight = useResolvedTheme() === 'light';
     const { t, lang, setLang } = useLanguage();
@@ -465,12 +457,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     /* ---------------------------------------------------------------- */
     const reduceMotion = useReducedMotion() ?? false;
 
-    /* 'plans' / 'natively-api' / 'natively-pro' all render the SAME
-       <PlansSettings/>. Keying the panel on activeTab would remount it (and
-       drop its internal state) when moving between them, so they collapse to
-       one key — no remount, no transition, which is correct: the content
-       didn't change. */
-    const panelKey = (activeTab === 'natively-api' || activeTab === 'natively-pro') ? 'plans' : activeTab;
+    const panelKey = activeTab;
 
     /* Read the previous key during render, write it in an effect — mutating a
        ref while rendering double-fires under StrictMode. */
@@ -529,17 +516,11 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     // Sync active tab when modal opens
     useEffect(() => {
         if (isOpen && initialTab) {
-            /* Deep-link open (App.tsx openSettingsExclusive('plans') and friends)
-               lands the tab switch one render AFTER the arming effect above, so
-               `animatePanel` would be true and the panel would slide-fade on top
-               of the modal's spring-in — the exact double-motion the guard exists
-               to stop. Suppress that one transition. The `!==` matters: setting
-               this on a same-tab open would never clear and would swallow the
-               user's first real tab click. */
-            if (initialTab !== activeTab) suppressPanelAnimRef.current = true;
-            setActiveTab(initialTab);
-
-
+            const tab = (initialTab === 'plans' || initialTab === 'natively-api' || initialTab === 'natively-pro')
+                ? 'ai-providers'
+                : initialTab;
+            if (tab !== activeTab) suppressPanelAnimRef.current = true;
+            setActiveTab(tab);
         }
     }, [isOpen, initialTab]);
 
@@ -1210,7 +1191,7 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
     // Why the picker rejected the last pick. Without this a rejected file is
     // indistinguishable from a cancelled dialog — the field just stays empty.
     const [googleServiceAccountError, setGoogleServiceAccountError] = useState('');
-    const [hasNativelyKey, setHasNativelyKey] = useState(initialHasNativelyKey);
+    const [hasNativelyKey, setHasNativelyKey] = useState(false);
     const [hasStoredSttGroqKey, setHasStoredSttGroqKey] = useState(false);
     const [hasStoredNvidiaNimKey, setHasStoredNvidiaNimKey] = useState(false);
     const [hasStoredSttOpenaiKey, setHasStoredSttOpenaiKey] = useState(false);
@@ -1865,14 +1846,6 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                                     >
                                         {activeTab === 'general' && navActivePill}
                                         <Monitor size={16} /> {t('General')}
-                                    </button>
-                                    <button
-                                        onClick={() => setActiveTab('plans')}
-                                        className={navItemClass(activeTab === 'plans' || activeTab === 'natively-api' || activeTab === 'natively-pro')}
-                                    >
-                                        {(activeTab === 'plans' || activeTab === 'natively-api' || activeTab === 'natively-pro') && navActivePill}
-                                        <HiCreditCard size={16} />
-                                        <span>{t('Plans & Billing')}</span>
                                     </button>
                                     <button
                                         onClick={() => setActiveTab('ai-providers')}
@@ -2678,9 +2651,6 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                             )}
                             {activeTab === 'skills' && (
                                 <SkillsSettings />
-                            )}
-                            {(activeTab === 'plans' || activeTab === 'natively-api' || activeTab === 'natively-pro') && (
-                                <PlansSettings initialIsPremium={initialIsPremium} initialHasNativelyKey={hasNativelyKey} />
                             )}
                             {activeTab === 'keybinds' && (
                                 <div className="space-y-5 animated fadeIn select-text pb-4">

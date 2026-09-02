@@ -580,13 +580,6 @@ export class OnboardingOrchestrator {
     if (explicitSkip) this.state.skipped.add(id);
     this.state.activeToasterId = null;
 
-    // Insert quiet_window after trial_promo (the 5th stage) to gate marketing.
-    // Capture the current turnCount as the baseline so the predicate
-    // resolves on the next 3 user turns.
-    if (id === 'trial_promo') {
-      this.state.completed['_turnCountAtQuietStart'] = this.state.turnCount;
-      this.insertAfterCurrent('quiet_window');
-    }
     this.persist();
     this.notify();
   }

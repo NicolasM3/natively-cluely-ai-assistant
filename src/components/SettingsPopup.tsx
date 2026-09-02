@@ -89,7 +89,7 @@ const SettingsPopup = () => {
             .catch(() => setCiV3Enabled(false));
     }, []);
     const [hasProfile, setHasProfile] = useState(false);
-    const [isPremium, setIsPremium] = useState(false);
+    const isPremium = true;
 
     const isFirstRender = React.useRef(true);
 
@@ -153,10 +153,7 @@ const SettingsPopup = () => {
                     setHasProfile(status.hasProfile);
                     setProfileMode(status.profileMode);
                 }
-                // Check premium status
-                const premium = await window.electronAPI?.licenseCheckPremium?.();
-                setIsPremium(!!premium);
-            } catch (e) { console.warn('[SettingsPopup] Failed to load profile/premium status:', e); }
+            } catch (e) { console.warn('[SettingsPopup] Failed to load profile status:', e); }
 
         };
         loadProfile();

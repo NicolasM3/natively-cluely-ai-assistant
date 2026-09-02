@@ -5,29 +5,11 @@
  * cleanly in .mjs for `node --test`.
  */
 
-/**
- * Review-prompt engagement policy — mirrors stageCatalog.ts, which in turn
- * mirrors the review ledger (electron/services/ReviewPromptLogic.ts). The rule
- * is "sessions OR usage", which cannot be expressed via `triggers` because the
- * orchestrator ANDs those — hence the predicate.
- */
-export const REVIEW_PROMPT_MIN_SESSIONS = 3;
-export const REVIEW_PROMPT_MIN_USAGE_MS = 30 * 60 * 1000;
-
-export function reviewEngagementMet(ctx) {
-  return ctx.startupCount >= REVIEW_PROMPT_MIN_SESSIONS
-    || ctx.totalUsageMs >= REVIEW_PROMPT_MIN_USAGE_MS;
-}
-
 export const STAGE_ORDER = [
   'permissions',
   'browser_extension',
   'profile_intelligence',
   'modes_manager',
-  'trial_promo',
-  'support',
-  'ads',
-  'review_prompt',
 ];
 
 export const STAGES = [
@@ -69,7 +51,7 @@ export const STAGES = [
       requiresMeetingInactive: true,
     },
     requiresStages: ['browser_extension'],
-    skipWhen: (s) => s.hasProfile || s.isPremium || s.seenProfileOnboarding,
+    skipWhen: (s) => s.hasProfile || s.seenProfileOnboarding,
   },
   {
     id: 'modes_manager',
@@ -85,72 +67,4 @@ export const STAGES = [
     requiresStages: ['profile_intelligence'],
     skipWhen: (s) => s.seenModesOnboarding || s.activeModeSet,
   },
-  {
-    id: 'trial_promo',
-    order: 5,
-    triggers: {
-      requiresHomepageMounted: true,
-      requiresHomepageDuration: 6000,
-      requiresForeground: true,
-      requiresMeetingInactive: true,
-    },
-    requiresStages: ['modes_manager'],
-    skipWhen: (s) => s.hasNativelyKey || s.hasTrialToken || s.isPremium,
-    cooldownMs: () => 21 * 24 * 60 * 60 * 1000,
-    reEligibility: (s) => !s.hasNativelyKey && !s.hasTrialToken && !s.isPremium,
-  },
-  {
-    id: 'support',
-    order: 6,
-    triggers: {
-      requiresHomepageMounted: true,
-      requiresHomepageDuration: 10_000,
-      requiresForeground: true,
-      requiresMeetingInactive: true,
-    },
-    requiresStages: ['quiet_window'],
-    skipWhen: (s) => !s.donationShouldShow || s.isPremium,
-    customPredicate: (ctx) => ctx.turnCount >= 10 || ctx.startupCount >= 10,
-    cooldownMs: () => 14 * 24 * 60 * 60 * 1000,
-  },
-  {
-    id: 'ads',
-    order: 7,
-    triggers: {
-      requiresHomepageMounted: true,
-      requiresHomepageDuration: 10_000,
-      requiresForeground: true,
-      requiresMeetingInactive: true,
-      requiresStartupCount: 4,
-    },
-    requiresStages: ['support'],
-    skipWhen: (s) => s.isPremium,
-    cooldownMs: () => 14 * 24 * 60 * 60 * 1000,
-  },
-  {
-    id: 'review_prompt',
-    order: 8,
-    triggers: {
-      requiresHomepageMounted: true,
-      requiresHomepageDuration: 10_000,
-      requiresForeground: true,
-      requiresMeetingInactive: true,
-      // Engagement lives in customPredicate — `triggers` are ANDed.
-    },
-    customPredicate: reviewEngagementMet,
-    requiresStages: ['ads'],
-    cooldownMs: () => 90 * 24 * 60 * 60 * 1000,
-  },
 ];
-
-export const QUIET_WINDOW_STAGE = {
-  id: 'quiet_window',
-  order: 99,
-  isGateOnly: true,
-  // Parity with stageCatalog.ts: gate-only stages MUST be onceEver or the
-  // orchestrator's evaluateAndDispatch drain loop re-completes them forever
-  // (synchronous infinite loop → native OOM). See the .ts for the full note.
-  onceEver: true,
-  triggers: {},
-  customPredicate: (ctx) => ctx.turnCount - (ctx.completed._turnCountAtQuietStart ?? 0) >= 3,
-};
